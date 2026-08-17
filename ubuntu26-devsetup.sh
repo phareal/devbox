@@ -1040,7 +1040,8 @@ mod_wm() {
                 x11-xserver-utils xdotool maim xclip \
                 libnotify-bin playerctl \
                 arandr lxappearance fonts-font-awesome papirus-icon-theme \
-                xss-lock gnome-screensaver xsecurelock
+                xss-lock gnome-screensaver xsecurelock \
+                gnome-settings-daemon gnome-themes-extra
 
     # Terminal : on se branche sur ce qui est réellement présent plutôt que
     # d'imposer un émulateur.
@@ -1073,6 +1074,23 @@ _wm_i3_config() {
         if grep -q 'polybar/launch.sh' "$cfg" && ! grep -q 'colorblocks/launch.sh' "$cfg"; then
             sed -i 's|polybar/launch.sh|polybar/colorblocks/launch.sh|' "$cfg"
             ok "config i3 migrée vers le launch.sh de colorblocks"
+            touched=0
+        fi
+        if ! grep -q 'gsd-xsettings' "$cfg"; then
+            # gsd-media-keys reprend volume et sourdine : les bindings i3 feraient doublon.
+            sed -i '/bindsym XF86AudioRaiseVolume/d;/bindsym XF86AudioLowerVolume/d;/bindsym XF86AudioMute/d' "$cfg"
+            cat >>"$cfg" <<'GSD'
+
+# Services GNOME utiles sous i3, lancés à l'unité : pas de gnome-session
+# concurrent, chacun est indépendant et se retire en commentant sa ligne.
+exec --no-startup-id /usr/libexec/gsd-xsettings
+exec --no-startup-id /usr/libexec/gsd-media-keys
+exec --no-startup-id /usr/libexec/gsd-power
+exec --no-startup-id /usr/libexec/gsd-sound
+exec --no-startup-id /usr/libexec/gsd-keyboard
+exec --no-startup-id /usr/libexec/gsd-housekeeping
+GSD
+            ok "services GNOME ajoutés à la config i3 (bindings volume retirés)"
             touched=0
         fi
         if grep -q 'xss-lock --transfer-sleep-lock -- xsecurelock' "$cfg"; then
@@ -1161,11 +1179,10 @@ mode "resize" {
 }
 bindsym $mod+r mode "resize"
 
-# --- Son et luminosité -----------------------------------------------------
-bindsym XF86AudioRaiseVolume exec --no-startup-id pactl set-sink-volume @DEFAULT_SINK@ +5%
-bindsym XF86AudioLowerVolume exec --no-startup-id pactl set-sink-volume @DEFAULT_SINK@ -5%
-bindsym XF86AudioMute        exec --no-startup-id pactl set-sink-mute @DEFAULT_SINK@ toggle
-bindsym XF86AudioPlay        exec --no-startup-id playerctl play-pause
+# --- Média -----------------------------------------------------------------
+# Volume et sourdine sont pris en charge par gsd-media-keys, lancé plus bas :
+# les rebinder ici créerait un doublon. Le contrôle du lecteur reste à i3.
+bindsym XF86AudioPlay exec --no-startup-id playerctl play-pause
 bindsym XF86AudioNext        exec --no-startup-id playerctl next
 bindsym XF86AudioPrev        exec --no-startup-id playerctl previous
 
@@ -1181,6 +1198,15 @@ bindsym $mod+Shift+e exec --no-startup-id i3-nagbar -t warning \
 # --- Démarrage -------------------------------------------------------------
 # polybar remplace i3bar : aucune section bar {} ici, ce serait deux barres.
 exec_always --no-startup-id $HOME/.config/polybar/colorblocks/launch.sh
+# Services GNOME utiles sous i3, lancés à l'unité : pas de gnome-session
+# concurrent, chacun est indépendant et se retire en commentant sa ligne.
+exec --no-startup-id /usr/libexec/gsd-xsettings
+exec --no-startup-id /usr/libexec/gsd-media-keys
+exec --no-startup-id /usr/libexec/gsd-power
+exec --no-startup-id /usr/libexec/gsd-sound
+exec --no-startup-id /usr/libexec/gsd-keyboard
+exec --no-startup-id /usr/libexec/gsd-housekeeping
+
 exec --no-startup-id gnome-screensaver
 exec --no-startup-id xss-lock --transfer-sleep-lock -- $HOME/.local/bin/devsetup-lock
 exec --no-startup-id picom -b

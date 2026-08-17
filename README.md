@@ -71,7 +71,7 @@ Configs de départ écrites **seulement si absentes**, jamais écrasées :
 
 | Fichier | Contenu |
 |---|---|
-| `~/.config/i3/config` | Gaps, raccourcis vim (`hjkl`), 6 espaces, rofi sur `$mod+d`, captures, son |
+| `~/.config/i3/config` | Gaps, raccourcis vim (`hjkl`), 6 espaces, rofi sur `$mod+d`, captures, services GNOME |
 | `~/.config/polybar/colorblocks/` | Thème **colorblocks** de [adi1090x/polybar-themes](https://github.com/adi1090x/polybar-themes), adapté desktop |
 | `~/.config/rofi/config.rasi` | Thème sombre, mode `drun` avec icônes |
 | `~/.config/picom.conf` | Ombres, fondus, coins arrondis (polybar exclu) |
@@ -108,6 +108,23 @@ Le `launch.sh` du thème est corrigé au passage : `polybar -q` masquait toute e
 | `$mod+r` | Mode redimensionnement |
 | `$mod+l` | Verrouiller l'écran |
 | `$mod+Shift+e` | Quitter la session |
+
+### Services GNOME sous i3
+
+GNOME installé sur la machine ne suffit pas : un paquet ne fait rien tant qu'il n'est pas lancé, et `gnome-shell` ne peut pas l'être sous i3 — il *est* le gestionnaire de fenêtres, place déjà prise. Plutôt qu'une session hybride `gnome-session` + i3, fragile depuis que GNOME 46 pilote ses composants par unités systemd, le module lance à l'unité ce qui est utile :
+
+```
+/usr/libexec/gsd-xsettings      thèmes GTK, polices, curseurs
+/usr/libexec/gsd-media-keys     touches volume et média
+/usr/libexec/gsd-power          gestion de l'énergie
+/usr/libexec/gsd-sound
+/usr/libexec/gsd-keyboard       disposition clavier
+/usr/libexec/gsd-housekeeping   nettoyage corbeille et temporaires
+```
+
+Chacun est indépendant : commenter sa ligne dans `~/.config/i3/config` suffit à le retirer. `gsd-media-keys` reprenant volume et sourdine, les `bindsym XF86AudioRaiseVolume`/`LowerVolume`/`Mute` sont retirés de la config — les garder ferait doublon. Le contrôle du lecteur (`playerctl`) reste côté i3.
+
+Ubuntu resolute embarque **GNOME 50** (`gnome-settings-daemon-50`).
 
 ### Verrouillage d'écran
 
