@@ -1095,13 +1095,16 @@ mod_wm() {
         term="x-terminal-emulator"
     fi
 
+    # Le thème polybar apporte aussi des polices : il précède donc le choix de
+    # la police, qui précède l'écriture des configs qui la déclarent.
+    _wm_polybar_config
     _wm_nerd_font
+    _wm_pick_font
+
     _wm_alacritty_config
     _wm_wallpaper
-
     _wm_lock_helper
     _wm_i3_config "$term"
-    _wm_polybar_config
     _wm_rofi_config
     _wm_picom_config
 
@@ -1174,7 +1177,7 @@ FEH
 # Les gaps sont natifs depuis i3 4.22 : aucun i3-gaps n'est nécessaire.
 
 set $mod Mod4
-font pango:JetBrainsMono Nerd Font 10
+font pango:@FONT@ 10
 
 # --- Apparence -------------------------------------------------------------
 gaps inner 10
@@ -1280,7 +1283,7 @@ exec --no-startup-id picom -b
 exec --no-startup-id dunst
 EOF
 
-    sed -i "s|@TERM@|${term}|" "$cfg"
+    sed -i -e "s|@TERM@|${term}|" -e "s|@FONT@|${_WM_FONT}|" "$cfg"
     install -d -m 755 "${HOME}/Images"
     ok "config i3 écrite (${cfg}, terminal : ${term})"
     return 0
@@ -1330,6 +1333,29 @@ _wm_polybar_config() {
     return 0
 }
 
+# Police retenue par i3, alacritty et rofi. Déclarer une police absente ne
+# produit aucune erreur : les applications tombent en repli silencieux et les
+# icônes deviennent des carrés. On choisit donc parmi ce qui est réellement
+# installé, le thème polybar apportant une Iosevka Nerd Font de son côté.
+_WM_FONT="JetBrainsMono Nerd Font"
+
+_wm_pick_font() {
+    local d="${HOME}/.local/share/fonts"
+
+    if [[ -n "$(find "$d" -iname 'JetBrainsMono*Nerd*' -print -quit 2>/dev/null || true)" ]]; then
+        _WM_FONT="JetBrainsMono Nerd Font"
+    elif [[ -n "$(find "$d" -iname '*osevka*erd*' -print -quit 2>/dev/null || true)" ]]; then
+        _WM_FONT="Iosevka Nerd Font"
+    elif have fc-list && fc-list : family 2>/dev/null | tr ',' '\n' | grep -qi 'nerd font'; then
+        _WM_FONT=$(fc-list : family 2>/dev/null | tr ',' '\n' | grep -i 'nerd font' | head -n1)
+    else
+        _WM_FONT="monospace"
+        warn "aucune Nerd Font installée — les icônes s'afficheront en carrés."
+    fi
+    ok "police retenue : ${_WM_FONT}"
+    return 0
+}
+
 # Version des Nerd Fonts, épinglée. Pour la relever : vérifier que l'asset
 # JetBrainsMono.tar.xz existe bien pour le tag visé avant de changer ce nombre.
 _WM_NERD_FONT_VERSION="v3.5.0"
@@ -1355,14 +1381,22 @@ _wm_nerd_font() {
     local tag="$_WM_NERD_FONT_VERSION" tmp
     install -d -m 755 "$dir"
     tmp=$(mktemp -d)
-    if curl -fsSL --max-time 120 \
+    # set +E le temps de l'appel : la substitution de commande hérite du trap
+    # ERR, et un échec réseau — que l'on gère juste en dessous — s'afficherait
+    # sinon comme un échec de module.
+    local err rc=0
+    set +E
+    err=$(curl -fsSL --max-time 180 --retry 3 --retry-delay 2 --retry-all-errors \
          "https://github.com/ryanoasis/nerd-fonts/releases/download/${tag}/JetBrainsMono.tar.xz" \
-         -o "${tmp}/font.tar.xz" 2>/dev/null; then
+         -o "${tmp}/font.tar.xz" 2>&1) || rc=$?
+    set -E
+
+    if (( rc == 0 )); then
         tar -xJf "${tmp}/font.tar.xz" -C "$dir" 2>/dev/null || true
         fc-cache -f >/dev/null 2>&1 || true
         ok "JetBrainsMono Nerd Font ${tag} installée"
     else
-        warn "téléchargement de JetBrainsMono ${tag} échoué — polices en repli."
+        warn "téléchargement de JetBrainsMono ${tag} échoué (curl ${rc}) : ${err:-pas de message}"
         warn "si le tag n'existe plus, ajuste _WM_NERD_FONT_VERSION dans ce script."
     fi
     rm -rf "$tmp"
@@ -1453,7 +1487,7 @@ import = ["~/.config/alacritty/catppuccin-mocha.toml"]
 size = 11
 
 [font.normal]
-family = "JetBrainsMono Nerd Font"
+family = "@FONT@"
 style = "Regular"
 
 [window]
@@ -1464,7 +1498,8 @@ opacity = 0.96
 [scrolling]
 history = 50000
 EOF
-    ok "config alacritty écrite (${cfg})"
+    sed -i "s|@FONT@|${_WM_FONT}|" "$cfg"
+    ok "config alacritty écrite (${cfg}, police ${_WM_FONT})"
     return 0
 }
 
@@ -1761,7 +1796,7 @@ _wm_rofi_config() {
     # Catppuccin Mocha, aligné sur le terminal et la barre. Le
     # colors/catppuccin.rasi du dépôt est une variante plus ancienne.
     sed -i \
-        -e 's|^\( *font: *\).*|\1"JetBrainsMono Nerd Font 10";|' \
+        -e "s|^\( *font: *\).*|\1\"${_WM_FONT} 10\";|" \
         -e 's|^\( *background: *\).*|\1#1e1e2e;|' \
         -e 's|^\( *background-alt: *\).*|\1#313244;|' \
         -e 's|^\( *foreground: *\).*|\1#cdd6f4;|' \

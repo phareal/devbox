@@ -141,6 +141,8 @@ Pour ajuster, dans `~/.config/rofi/launchers/type-7/style-4.rasi` : `width` (blo
 
 **Polices** : `JetBrainsMono Nerd Font` pour i3, alacritty et rofi, qui la déclarent tous les trois — sans elle, repli silencieux et icônes en carrés. Le thème polybar garde son Iosevka, qu'il embarque.
 
+Si le téléchargement échoue, le script **ne déclare pas une police absente** : déclarer une famille manquante ne produit aucune erreur, les applications tombent en repli silencieux et les icônes deviennent des carrés. Il retient donc, dans l'ordre, JetBrainsMono Nerd Font, l'Iosevka Nerd Font apportée par le thème polybar, toute autre Nerd Font présente, puis `monospace` — et écrit ce choix dans les trois configs. C'est aussi pourquoi le thème polybar est installé *avant* le choix de la police.
+
 La version est **épinglée** (`_WM_NERD_FONT_VERSION`, actuellement `v3.5.0`) : l'API des releases est limitée en débit et renvoie des 429 en usage répété, et une police qui change sous les pieds ferait bouger le rendu des trois applications sans qu'on l'ait demandé. Pour la relever, vérifier d'abord que l'asset `JetBrainsMono.tar.xz` existe pour le tag visé.
 
 ### Services GNOME sous i3
