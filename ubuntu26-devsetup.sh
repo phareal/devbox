@@ -1718,7 +1718,7 @@ _wm_strip_color_switch() {
 # Le style embarque ses couleurs en dur dans son bloc global et n'importe pas
 # colors/catppuccin.rasi ; on substitue donc les six propriétés, chacune
 # n'apparaissant qu'une fois dans le fichier.
-_WM_ROFI_REV=1
+_WM_ROFI_REV=2
 
 _wm_rofi_config() {
     local dir="${HOME}/.config/rofi"
@@ -1762,8 +1762,21 @@ _wm_rofi_config() {
         -e 's|^\( *urgent: *\).*|\1#f38ba8;|' \
         "$st"
 
+    # style-4 sort en barre latérale plein écran, ancrée à gauche. On en fait
+    # une fenêtre modale centrée et plus courte. La hauteur est supprimée
+    # plutôt que fixée : rofi la calcule alors sur le contenu.
+    sed -i \
+        -e 's|^\( *location: *\).*|\1center;|' \
+        -e 's|^\( *anchor: *\).*|\1center;|' \
+        -e 's|^\( *width: *\).*|\1560px;|' \
+        -e '/^ *height: *100%;/d' \
+        -e 's|^\( *lines: *\).*|\17;|' \
+        "$st"
+    # border-radius apparaît sept fois dans le fichier : restreint à la fenêtre.
+    sed -i '/^window {/,/^}/ s|^\( *border-radius: *\).*|\112px;|' "$st"
+
     printf '%s\n' "$_WM_ROFI_REV" >"$rev"
-    ok "rofi type-7/style-4 installé, repeint en Catppuccin Mocha"
+    ok "rofi type-7/style-4 : modale centrée, 560px, Catppuccin Mocha"
     return 0
 }
 

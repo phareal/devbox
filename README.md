@@ -135,7 +135,9 @@ Une image posée à la main n'est **jamais écrasée** : un marqueur `.devsetup-
 
 **Polybar** : le `colors.ini` du thème passe en Mocha, les huit *shades* de colorblocks recevant le dégradé bleu → lavande plutôt que l'orange d'origine.
 
-**Rofi** : lanceur [adi1090x/rofi](https://github.com/adi1090x/rofi) en **type-7 / style-4**, lancé par `$mod+d`. Le style embarque ses couleurs en dur dans son bloc global et n'importe pas `colors/catppuccin.rasi` — les six propriétés sont donc substituées une à une, chacune n'apparaissant qu'une fois dans le fichier. La palette du dépôt étant une variante plus ancienne de Catppuccin, c'est le Mocha exact du terminal et de la barre qui est appliqué. Les autres styles restent intacts.
+**Rofi** : lanceur [adi1090x/rofi](https://github.com/adi1090x/rofi) en **type-7 / style-4**, lancé par `$mod+d`. Le style sort en barre latérale pleine hauteur ancrée à gauche ; il est transformé en **modale centrée** — `location`/`anchor` à `center`, largeur `560px`, `lines` à 7, coins à `12px`. La hauteur est *supprimée* plutôt que fixée, rofi la calculant alors sur le contenu. Le `border-radius` apparaissant sept fois dans le fichier, seul celui du bloc `window` est modifié, via un sed restreint à ce bloc.
+
+Pour ajuster, dans `~/.config/rofi/launchers/type-7/style-4.rasi` : `width` (bloc `window`) et `lines` (bloc `listview`). Le style embarque ses couleurs en dur dans son bloc global et n'importe pas `colors/catppuccin.rasi` — les six propriétés sont donc substituées une à une, chacune n'apparaissant qu'une fois dans le fichier. La palette du dépôt étant une variante plus ancienne de Catppuccin, c'est le Mocha exact du terminal et de la barre qui est appliqué. Les autres styles restent intacts.
 
 **Polices** : `JetBrainsMono Nerd Font` pour i3, alacritty et rofi, qui la déclarent tous les trois — sans elle, repli silencieux et icônes en carrés. Le thème polybar garde son Iosevka, qu'il embarque.
 
