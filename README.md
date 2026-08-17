@@ -75,7 +75,7 @@ Configs de départ écrites **seulement si absentes**, jamais écrasées :
 |---|---|
 | `~/.config/i3/config` | Gaps, raccourcis vim (`hjkl`), 6 espaces, rofi sur `$mod+d`, captures, services GNOME |
 | `~/.config/polybar/colorblocks/` | Thème **colorblocks** de [adi1090x/polybar-themes](https://github.com/adi1090x/polybar-themes), adapté desktop |
-| `~/.config/rofi/config.rasi` | Thème sombre, mode `drun` avec icônes |
+| `~/.config/rofi/launchers/type-7/` | Lanceur [adi1090x/rofi](https://github.com/adi1090x/rofi), **type-7 / style-4**, repeint en Mocha |
 | `~/.config/picom.conf` | Ombres, fondus, coins arrondis (polybar exclu) |
 
 Le thème polybar est cloné depuis adi1090x/polybar-themes puis **adapté à un desktop de dev Ubuntu** — il sort configuré pour un portable Arch :
@@ -133,7 +133,11 @@ cp mon-image.jpg ~/.local/share/wallpapers/wallpaper
 
 Une image posée à la main n'est **jamais écrasée** : un marqueur `.devsetup-default` distingue ce que le script a installé de ce que tu as choisi. Sans marqueur, le fichier est considéré comme tien et laissé tel quel.
 
-**Polybar** : le `colors.ini` du thème passe en Mocha, les huit *shades* de colorblocks recevant le dégradé bleu → lavande plutôt que l'orange d'origine. **rofi** et **picom** étaient déjà sur cette palette.
+**Polybar** : le `colors.ini` du thème passe en Mocha, les huit *shades* de colorblocks recevant le dégradé bleu → lavande plutôt que l'orange d'origine.
+
+**Rofi** : lanceur [adi1090x/rofi](https://github.com/adi1090x/rofi) en **type-7 / style-4**, lancé par `$mod+d`. Le style embarque ses couleurs en dur dans son bloc global et n'importe pas `colors/catppuccin.rasi` — les six propriétés sont donc substituées une à une, chacune n'apparaissant qu'une fois dans le fichier. La palette du dépôt étant une variante plus ancienne de Catppuccin, c'est le Mocha exact du terminal et de la barre qui est appliqué. Les autres styles restent intacts.
+
+**Polices** : `JetBrainsMono Nerd Font` pour i3, alacritty et rofi, qui la déclarent tous les trois — sans elle, repli silencieux et icônes en carrés. Le thème polybar garde son Iosevka, qu'il embarque.
 
 ### Services GNOME sous i3
 

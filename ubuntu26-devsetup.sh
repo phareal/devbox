@@ -1095,6 +1095,7 @@ mod_wm() {
         term="x-terminal-emulator"
     fi
 
+    _wm_nerd_font
     _wm_alacritty_config
     _wm_wallpaper
 
@@ -1140,6 +1141,11 @@ GSD
             ok "services GNOME ajoutés à la config i3 (bindings volume retirés)"
             touched=0
         fi
+        if grep -q 'bindsym \$mod+d .*rofi -show drun' "$cfg"; then
+            sed -i 's|^\(bindsym \$mod+d *exec --no-startup-id \).*|\1$HOME/.config/rofi/launchers/type-7/launcher.sh|' "$cfg"
+            ok "lanceur d'i3 basculé sur rofi type-7/style-4"
+            touched=0
+        fi
         if ! grep -q 'devsetup-wallpaper' "$cfg"; then
             cat >>"$cfg" <<'FEH'
 exec_always --no-startup-id $HOME/.local/bin/devsetup-wallpaper
@@ -1168,7 +1174,7 @@ FEH
 # Les gaps sont natifs depuis i3 4.22 : aucun i3-gaps n'est nécessaire.
 
 set $mod Mod4
-font pango:Iosevka Nerd Font 10
+font pango:JetBrainsMono Nerd Font 10
 
 # --- Apparence -------------------------------------------------------------
 gaps inner 10
@@ -1180,7 +1186,7 @@ default_floating_border pixel 2
 
 # --- Lancement -------------------------------------------------------------
 bindsym $mod+Return exec --no-startup-id @TERM@
-bindsym $mod+d      exec --no-startup-id rofi -show drun
+bindsym $mod+d      exec --no-startup-id $HOME/.config/rofi/launchers/type-7/launcher.sh
 bindsym $mod+Tab    exec --no-startup-id rofi -show window
 bindsym $mod+Shift+q kill
 bindsym $mod+e      exec --no-startup-id pcmanfm
@@ -1321,6 +1327,37 @@ _wm_polybar_config() {
 
     ok "thème colorblocks installé dans ${dir}"
     ok "lancement : ${dir}/launch.sh — relance i3 (Super+Shift+r) pour l'appliquer"
+    return 0
+}
+
+# JetBrainsMono Nerd Font : déclarée par alacritty, i3 et le style rofi. Sans
+# elle, les trois tombent en repli et les icônes deviennent des carrés. Le
+# thème polybar embarque sa propre Iosevka, laissée telle quelle.
+_wm_nerd_font() {
+    local dir="${HOME}/.local/share/fonts"
+
+    if [[ -n "$(find "$dir" -iname 'JetBrainsMono*Nerd*' -print -quit 2>/dev/null)" ]]; then
+        skip "JetBrainsMono Nerd Font"
+        return 0
+    fi
+    if (( DRY_RUN )); then ok "[dry-run] JetBrainsMono Nerd Font"; return 0; fi
+
+    local tag tmp
+    tag=$(gh_latest_tag ryanoasis/nerd-fonts) || tag=""
+    [[ -n "$tag" ]] || { warn "version des Nerd Fonts non résolue — police ignorée."; return 0; }
+
+    install -d -m 755 "$dir"
+    tmp=$(mktemp -d)
+    if curl -fsSL --max-time 120 \
+         "https://github.com/ryanoasis/nerd-fonts/releases/download/${tag}/JetBrainsMono.tar.xz" \
+         -o "${tmp}/font.tar.xz" 2>/dev/null; then
+        tar -xJf "${tmp}/font.tar.xz" -C "$dir" 2>/dev/null || true
+        fc-cache -f >/dev/null 2>&1 || true
+        ok "JetBrainsMono Nerd Font installée (${tag})"
+    else
+        warn "téléchargement de la Nerd Font échoué — polices en repli."
+    fi
+    rm -rf "$tmp"
     return 0
 }
 
@@ -1677,54 +1714,56 @@ _wm_strip_color_switch() {
     return $changed
 }
 
+# Rofi : lanceur adi1090x, type-7 / style-4, repeint en Catppuccin Mocha.
+# Le style embarque ses couleurs en dur dans son bloc global et n'importe pas
+# colors/catppuccin.rasi ; on substitue donc les six propriétés, chacune
+# n'apparaissant qu'une fois dans le fichier.
+_WM_ROFI_REV=1
+
 _wm_rofi_config() {
-    local cfg="${HOME}/.config/rofi/config.rasi"
-    if [[ -f "$cfg" ]]; then skip "config rofi"; return 0; fi
-    if (( DRY_RUN )); then ok "[dry-run] ${cfg}"; return 0; fi
+    local dir="${HOME}/.config/rofi"
+    local rev="${dir}/.devsetup-rev"
 
-    install -d -m 755 "$(dirname "$cfg")"
-    cat >"$cfg" <<'EOF'
-configuration {
-    modi: "drun,run,window";
-    show-icons: true;
-    display-drun: " ";
-    display-run: " ";
-    display-window: " ";
-    drun-display-format: "{name}";
-    terminal: "x-terminal-emulator";
-}
+    if (( DRY_RUN )); then ok "[dry-run] rofi type-7/style-4 (Catppuccin)"; return 0; fi
+    if [[ -f "$rev" && "$(cat "$rev" 2>/dev/null)" == "$_WM_ROFI_REV" ]]; then
+        skip "rofi type-7/style-4"
+        return 0
+    fi
 
-* {
-    background:     #1e1e2e;
-    background-alt: #313244;
-    foreground:     #cdd6f4;
-    selected:       #89b4fa;
-    urgent:         #f38ba8;
-}
+    local tmp; tmp=$(mktemp -d)
+    if ! git clone -q --depth 1 https://github.com/adi1090x/rofi "$tmp/rofi" 2>/dev/null; then
+        warn "clone de adi1090x/rofi échoué — rofi garde sa configuration."
+        rm -rf "$tmp"
+        return 0
+    fi
 
-window {
-    width: 40%;
-    border-radius: 8px;
-    background-color: @background;
-}
+    install -d -m 755 "$dir" "${dir}/launchers"
+    cp "$tmp/rofi/files/config.rasi" "$dir/"
+    cp -r "$tmp/rofi/files/colors" "$dir/"
+    rm -rf "${dir}/launchers/type-7"
+    cp -r "$tmp/rofi/files/launchers/type-7" "${dir}/launchers/"
+    rm -rf "$tmp"
 
-inputbar {
-    padding: 10px;
-    background-color: @background-alt;
-    text-color: @foreground;
-}
+    local st="${dir}/launchers/type-7/style-4.rasi"
+    local lc="${dir}/launchers/type-7/launcher.sh"
 
-listview { lines: 8; padding: 6px; }
+    sed -i "s|^theme='style-1'|theme='style-4'|" "$lc"
+    chmod 755 "$lc"
 
-element { padding: 8px; border-radius: 6px; }
-element selected {
-    background-color: @selected;
-    text-color: @background;
-}
-element-text { text-color: inherit; }
-element-icon { size: 20px; padding: 0 8px 0 0; }
-EOF
-    ok "config rofi écrite (${cfg})"
+    # Catppuccin Mocha, aligné sur le terminal et la barre. Le
+    # colors/catppuccin.rasi du dépôt est une variante plus ancienne.
+    sed -i \
+        -e 's|^\( *font: *\).*|\1"JetBrainsMono Nerd Font 10";|' \
+        -e 's|^\( *background: *\).*|\1#1e1e2e;|' \
+        -e 's|^\( *background-alt: *\).*|\1#313244;|' \
+        -e 's|^\( *foreground: *\).*|\1#cdd6f4;|' \
+        -e 's|^\( *selected: *\).*|\1#89b4fa;|' \
+        -e 's|^\( *active: *\).*|\1#a6e3a1;|' \
+        -e 's|^\( *urgent: *\).*|\1#f38ba8;|' \
+        "$st"
+
+    printf '%s\n' "$_WM_ROFI_REV" >"$rev"
+    ok "rofi type-7/style-4 installé, repeint en Catppuccin Mocha"
     return 0
 }
 
