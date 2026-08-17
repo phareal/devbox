@@ -65,11 +65,11 @@ Transfert de `~/.ssh` d'une machine à l'autre, **toujours chiffré**.
 ./migrate-ssh-keys.sh --export -o ~/ssh-backup
 
 # Transport MANUEL — clé USB, ou :
-scp ~/ssh-backup.tar.gz.age user@nouvelle-machine:~/
+scp ~/ssh-backup.tar.gz.gpg user@nouvelle-machine:~/
 
 # Sur la nouvelle machine
-./migrate-ssh-keys.sh --import ~/ssh-backup.tar.gz.age
-shred -u ~/ssh-backup.tar.gz.age
+./migrate-ssh-keys.sh --import ~/ssh-backup.tar.gz.gpg
+shred -u ~/ssh-backup.tar.gz.gpg
 ```
 
 | Option | Effet |
@@ -77,8 +77,15 @@ shred -u ~/ssh-backup.tar.gz.age
 | `--export [-o PREFIXE]` | Archive chiffrée de `~/.ssh` (défaut : `~/ssh-backup-<hôte>-<date>`) |
 | `--import ARCHIVE` | Restaure dans `~/.ssh` avec les bonnes permissions |
 | `--force` | À l'import, écrase les fichiers existants |
+| `--passphrase-file F` | Lit la passphrase dans `F` (première ligne), quand aucun terminal n'est disponible |
 
-Chiffrement : `age` s'il est présent, sinon `gpg`, sinon `openssl` (AES-256, PBKDF2 600 000 itérations). L'extension indique l'outil utilisé (`.age` / `.gpg` / `.enc`). **Si aucun des trois n'est disponible, le script refuse d'écrire** plutôt que de produire une archive en clair.
+Chiffrement : `gpg` s'il est présent, sinon `openssl` (AES-256, PBKDF2 600 000 itérations). L'extension indique l'outil utilisé (`.gpg` / `.enc`) ; les archives `.age` sont acceptées à l'import. **Si aucun des deux n'est disponible, le script refuse d'écrire** plutôt que de produire une archive en clair.
+
+La passphrase est lue par le script lui-même et transmise aux outils par descripteur de fichier — jamais en argument de ligne de commande, où elle serait visible dans la table des processus. `gpg` tourne en `--pinentry-mode loopback` : il n'a donc pas besoin d'un tty, et fonctionne dans un shell non interactif, un script ou un CI. Sans terminal du tout, utilise `--passphrase-file` ou `SSH_MIGRATE_PASSPHRASE`.
+
+Après chiffrement, l'archive est **rouverte et vérifiée** immédiatement (déchiffrement + lecture du tar) : une sauvegarde qu'on ne sait pas relire ne vaut rien.
+
+Seuls les **fichiers réguliers** de premier niveau de `~/.ssh` sont archivés. Les sous-dossiers sont ignorés et signalés — notamment `agent/`, qui contient des sockets que `tar` ne sait pas archiver.
 
 Comportement à l'import :
 
