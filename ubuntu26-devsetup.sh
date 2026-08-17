@@ -491,36 +491,45 @@ EOF
 }
 
 # --- ssh -------------------------------------------------------------------
-mod_ssh_desc="Clés SSH : génération ed25519, ssh-agent, ~/.ssh/config, publication sur GitHub"
+mod_ssh_desc="Clés SSH : agent systemd persistant, passphrases en trousseau, config, publication GitHub"
 mod_ssh() {
     apt_install openssh-client
+    # secret-tool (libsecret) sert à mémoriser les passphrases dans le trousseau
+    # de session, pour que l'agent charge les clés sans rien demander.
+    apt_install_optional libsecret-tools
 
     local d="${HOME}/.ssh"
-    local key="${d}/id_ed25519"
-
     run install -d -m 700 "$d"
+    run install -d -m 700 "${HOME}/.local/bin"
 
-    # --- Clé principale -----------------------------------------------------
-    # Aucune clé existante n'est écrasée : si le fichier est là, on n'y touche pas.
-    if [[ -f "$key" ]]; then
-        skip "clé ${key}"
+    # --- Inventaire des clés privées déjà présentes -------------------------
+    # Une clé importée depuis une autre machine ne doit jamais être écrasée :
+    # on ne génère que si le dossier n'en contient aucune.
+    local existing=()
+    if [[ -d "$d" ]]; then
+        while IFS= read -r f; do existing+=("$f"); done < <(_ssh_private_keys)
+    fi
+
+    if [[ ${#existing[@]} -gt 0 ]]; then
+        skip "${#existing[@]} clé(s) privée(s) déjà présente(s) — aucune génération"
+        local k
+        for k in "${existing[@]}"; do dim_key "$k"; done
     elif (( DRY_RUN )); then
-        ok "[dry-run] génération de ${key}"
+        ok "[dry-run] génération de ${d}/id_ed25519"
     else
         local comment="${USER}@$(hostname -s 2>/dev/null || hostname)"
         if (( ASSUME_YES )); then
-            ssh-keygen -t ed25519 -a 100 -C "$comment" -f "$key" -N ""
+            ssh-keygen -t ed25519 -a 100 -C "$comment" -f "${d}/id_ed25519" -N ""
             warn "clé générée SANS passphrase (mode --yes)."
-            warn "ajoute-en une dès que possible :  ssh-keygen -p -f $key"
+            warn "ajoute-en une :  ssh-keygen -p -f ${d}/id_ed25519"
         else
-            log "génération d'une clé ed25519 — choisis une passphrase (recommandé)."
-            ssh-keygen -t ed25519 -a 100 -C "$comment" -f "$key"
+            log "aucune clé trouvée — génération d'une ed25519."
+            ssh-keygen -t ed25519 -a 100 -C "$comment" -f "${d}/id_ed25519"
         fi
-        ok "clé créée : ${key}"
+        ok "clé créée : ${d}/id_ed25519"
     fi
 
     # --- Permissions --------------------------------------------------------
-    # OpenSSH refuse d'utiliser une clé privée lisible par d'autres.
     if ! (( DRY_RUN )); then
         chmod 700 "$d"
         find "$d" -maxdepth 1 -type f ! -name '*.pub' ! -name 'known_hosts*' \
@@ -530,21 +539,46 @@ mod_ssh() {
         ok "permissions de ~/.ssh normalisées (700 / 600 / 644)"
     fi
 
-    # --- ~/.ssh/config ------------------------------------------------------
-    # Bloc délimité et écrit une seule fois : un config existant est préservé.
-    local cfg="${d}/config"
+    _ssh_write_config
+    _ssh_install_helpers
+    _ssh_systemd_agent
+    _ssh_shell_env
+    _ssh_publish_github
+}
+
+# Liste les fichiers de ~/.ssh qui sont des clés privées, par leur en-tête.
+# Plus fiable que se fier au nom : id_*, *.pem, ou n'importe quoi d'autre.
+_ssh_private_keys() {
+    local f
+    while IFS= read -r f; do
+        head -n1 "$f" 2>/dev/null | grep -q -- '-----BEGIN .*PRIVATE KEY-----' && printf '%s\n' "$f"
+    done < <(find "${HOME}/.ssh" -maxdepth 1 -type f ! -name '*.pub' \
+                  ! -name 'known_hosts*' ! -name 'config' ! -name 'authorized_keys' 2>/dev/null | sort)
+    return 0
+}
+
+dim_key() { printf '%s      %s%s\n' "$C_DIM" "$(basename "$1")" "$C_RESET"; }
+
+# --- ~/.ssh/config ---------------------------------------------------------
+_ssh_write_config() {
+    local cfg="${HOME}/.ssh/config"
+
     if [[ -f "$cfg" ]] && grep -q 'devsetup:managed' "$cfg"; then
         skip "bloc ~/.ssh/config"
-    elif (( DRY_RUN )); then
-        ok "[dry-run] bloc ajouté à ${cfg}"
-    else
-        [[ -f "$cfg" ]] && cp -n "$cfg" "${cfg}.bak" 2>/dev/null || true
-        cat >>"$cfg" <<EOF
+        return 0
+    fi
+    if (( DRY_RUN )); then ok "[dry-run] bloc ajouté à ${cfg}"; return 0; fi
+
+    [[ -f "$cfg" ]] && cp -n "$cfg" "${cfg}.bak" 2>/dev/null || true
+
+    # IdentitiesOnly n'est PAS activé globalement : il limiterait ssh aux seules
+    # clés déclarées dans ce fichier, et couperait l'accès à tout serveur dont
+    # la clé est simplement chargée dans l'agent.
+    cat >>"$cfg" <<'EOF'
 
 # >>> devsetup:managed >>>
 Host *
     AddKeysToAgent yes
-    IdentitiesOnly yes
     ServerAliveInterval 60
     ServerAliveCountMax 3
     HashKnownHosts yes
@@ -552,56 +586,257 @@ Host *
 Host github.com
     HostName github.com
     User git
-    IdentityFile ${key}
 # <<< devsetup:managed <<<
 EOF
-        chmod 600 "$cfg"
-        ok "bloc de configuration ajouté à ${cfg}"
-        [[ -f "${cfg}.bak" ]] && warn "ancien config sauvegardé : ${cfg}.bak"
+    chmod 600 "$cfg"
+    ok "bloc de configuration ajouté à ${cfg}"
+    [[ -f "${cfg}.bak" ]] && warn "ancien config sauvegardé : ${cfg}.bak"
+    return 0
+}
+
+# --- Scripts d'appoint dans ~/.local/bin -----------------------------------
+_ssh_install_helpers() {
+    local bin="${HOME}/.local/bin"
+    if (( DRY_RUN )); then ok "[dry-run] helpers dans ${bin}"; return 0; fi
+
+    # 1. Fournisseur de passphrase pour ssh-add, branché sur le trousseau.
+    cat >"${bin}/ssh-askpass-secret" <<'EOF'
+#!/usr/bin/env bash
+# Appelé par ssh-add via SSH_ASKPASS. Reçoit en $1 une invite dont le libellé
+# varie selon la version d'OpenSSH :
+#   "Enter passphrase for /home/user/.ssh/id_ed25519: "
+#   "Enter passphrase for key '/home/user/.ssh/id_rsa': "
+# et rend la passphrase mémorisée pour cette clé, ou échoue silencieusement.
+set -euo pipefail
+prompt="${1:-}"
+
+key="${prompt#*for }"     # tout ce qui suit "for "
+key="${key#key }"         # variante "key '...'"
+key="${key%$'\n'}"
+key="${key% }"            # espace final
+key="${key%:}"            # deux-points final
+key="${key#\'}"; key="${key%\'}"   # guillemets de la variante "key '...'"
+
+[[ -n "$key" && -e "$key" ]] || exit 1
+command -v secret-tool >/dev/null || exit 1
+secret-tool lookup ssh-key "$key" 2>/dev/null || exit 1
+EOF
+    chmod 755 "${bin}/ssh-askpass-secret"
+
+    # 2. Chargement de toutes les clés privées dans l'agent, sans doublon.
+    cat >"${bin}/ssh-add-all" <<'EOF'
+#!/usr/bin/env bash
+# Charge dans l'agent toute clé privée de ~/.ssh pas encore présente.
+set -uo pipefail
+
+loaded=$(ssh-add -l 2>/dev/null | awk '{print $2}' || true)
+added=0 pending=()
+
+while IFS= read -r key; do
+    head -n1 "$key" 2>/dev/null | grep -q -- '-----BEGIN .*PRIVATE KEY-----' || continue
+
+    fp=$(ssh-keygen -lf "$key" 2>/dev/null | awk '{print $2}')
+    [[ -n "$fp" ]] && printf '%s\n' "$loaded" | grep -qF "$fp" && continue
+
+    if ssh-add -q "$key" </dev/null 2>/dev/null; then
+        added=$((added + 1))
+    else
+        pending+=("$key")
     fi
+done < <(find "${HOME}/.ssh" -maxdepth 1 -type f ! -name '*.pub' \
+              ! -name 'known_hosts*' ! -name 'config' ! -name 'authorized_keys' | sort)
 
-    # --- ssh-agent au login -------------------------------------------------
-    local rc="${HOME}/.bashrc"
-    [[ "${SHELL:-}" == */zsh ]] && rc="${HOME}/.zshrc"
-    if [[ -f "$rc" ]] && grep -q 'devsetup:ssh-agent' "$rc"; then
-        skip "démarrage de ssh-agent dans $rc"
-    elif [[ -f "$rc" ]]; then
-        run bash -c "cat >>'$rc' <<'EOS'
-
-# devsetup:ssh-agent — démarre un agent unique et y charge la clé par défaut
-if [ -z \"\${SSH_AUTH_SOCK:-}\" ]; then
-    eval \"\$(ssh-agent -s)\" >/dev/null
+[[ $added -gt 0 ]] && echo "ssh-add-all : ${added} clé(s) chargée(s)."
+if [[ ${#pending[@]} -gt 0 ]]; then
+    echo "ssh-add-all : passphrase inconnue pour ${#pending[@]} clé(s) :" >&2
+    for k in "${pending[@]}"; do echo "  ssh-key-remember $k" >&2; done
 fi
-ssh-add -l >/dev/null 2>&1 || ssh-add ~/.ssh/id_ed25519 2>/dev/null
-EOS"
-        ok "ssh-agent branché dans $rc"
-    fi
+exit 0
+EOF
+    chmod 755 "${bin}/ssh-add-all"
 
-    # --- Publication de la clé PUBLIQUE sur GitHub --------------------------
-    # Seul le .pub quitte la machine. La clé privée ne bouge jamais.
-    if [[ ! -f "${key}.pub" ]]; then
-        warn "pas de ${key}.pub — publication GitHub ignorée."
-        return 0
+    # 3. Mémorisation d'une passphrase dans le trousseau.
+    cat >"${bin}/ssh-key-remember" <<'EOF'
+#!/usr/bin/env bash
+# Mémorise la passphrase d'une clé dans le trousseau de session, pour que
+# l'agent la charge seul à chaque ouverture de session.
+#
+#   ssh-key-remember ~/.ssh/id_ed25519
+#
+set -euo pipefail
+
+key="${1:-}"
+[[ -n "$key" ]] || { echo "usage: ssh-key-remember <chemin-de-la-clé>" >&2; exit 1; }
+[[ -f "$key" ]] || { echo "clé introuvable : $key" >&2; exit 1; }
+key=$(cd "$(dirname "$key")" && printf '%s/%s' "$(pwd)" "$(basename "$key")")
+
+command -v secret-tool >/dev/null || {
+    echo "secret-tool absent :  sudo apt install libsecret-tools" >&2; exit 1; }
+
+# Une clé sans passphrase n'a rien à mémoriser.
+if ssh-keygen -y -P "" -f "$key" >/dev/null 2>&1; then
+    echo "Cette clé n'a pas de passphrase — rien à mémoriser."
+    echo "L'agent la chargera directement."
+    exit 0
+fi
+
+printf 'Passphrase de %s : ' "$(basename "$key")" >/dev/tty
+IFS= read -rs pass </dev/tty; printf '\n' >/dev/tty
+
+# Vérifie AVANT de stocker : une passphrase fausse en trousseau est pire
+# qu'absente, elle échouerait en silence à chaque ouverture de session.
+# La passphrase transite par un askpass jetable, jamais par la ligne de
+# commande de ssh-keygen, qui serait lisible par tous dans ps.
+tmp=$(mktemp -d); trap 'rm -rf "$tmp"; unset DEVSETUP_PASS' EXIT
+cat >"$tmp/askpass" <<'ASK'
+#!/bin/sh
+printf '%s' "$DEVSETUP_PASS"
+ASK
+chmod 700 "$tmp/askpass"
+
+export DEVSETUP_PASS="$pass"
+if ! SSH_ASKPASS="$tmp/askpass" SSH_ASKPASS_REQUIRE=force DISPLAY="${DISPLAY:-:0}" \
+     ssh-keygen -y -f "$key" >/dev/null 2>&1; then
+    echo "Passphrase incorrecte — rien n'a été enregistré." >&2
+    exit 1
+fi
+
+printf '%s' "$pass" | secret-tool store --label="SSH ${key}" ssh-key "$key"
+unset pass
+echo "Passphrase mémorisée pour ${key}."
+echo "Chargement immédiat dans l'agent :"
+SSH_ASKPASS="${HOME}/.local/bin/ssh-askpass-secret" SSH_ASKPASS_REQUIRE=force \
+    ssh-add "$key" </dev/null 2>/dev/null && echo "  clé chargée." || \
+    echo "  (l'agent la prendra à la prochaine ouverture de session)"
+EOF
+    chmod 755 "${bin}/ssh-key-remember"
+
+    ok "helpers installés : ssh-key-remember, ssh-add-all, ssh-askpass-secret"
+    return 0
+}
+
+# --- Agent systemd unique ---------------------------------------------------
+# Un agent par session, pas un par terminal : le socket vit dans XDG_RUNTIME_DIR
+# et tous les shells pointent dessus. La passphrase n'est donc demandée qu'une
+# fois — et zéro fois si elle est en trousseau.
+_ssh_systemd_agent() {
+    local ud="${HOME}/.config/systemd/user"
+    local ed="${HOME}/.config/environment.d"
+
+    if (( DRY_RUN )); then ok "[dry-run] unités systemd ssh-agent"; return 0; fi
+
+    install -d -m 755 "$ud" "$ed"
+
+    cat >"${ud}/ssh-agent.service" <<'EOF'
+[Unit]
+Description=Agent SSH de session (devsetup)
+Documentation=man:ssh-agent(1)
+
+[Service]
+Type=simple
+Environment=SSH_AUTH_SOCK=%t/ssh-agent.socket
+ExecStart=/usr/bin/ssh-agent -D -a $SSH_AUTH_SOCK
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target
+EOF
+
+    cat >"${ud}/ssh-add-keys.service" <<EOF
+[Unit]
+Description=Chargement des clés SSH dans l'agent (devsetup)
+Requires=ssh-agent.service
+After=ssh-agent.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+Environment=SSH_AUTH_SOCK=%t/ssh-agent.socket
+Environment=SSH_ASKPASS=%h/.local/bin/ssh-askpass-secret
+Environment=SSH_ASKPASS_REQUIRE=force
+ExecStart=%h/.local/bin/ssh-add-all
+
+[Install]
+WantedBy=default.target
+EOF
+
+    # Rend SSH_AUTH_SOCK visible aux applications graphiques (IDE, navigateurs).
+    printf 'SSH_AUTH_SOCK=${XDG_RUNTIME_DIR}/ssh-agent.socket\n' \
+        >"${ed}/10-ssh-agent.conf"
+
+    if systemctl --user daemon-reload 2>/dev/null; then
+        systemctl --user enable --now ssh-agent.service >/dev/null 2>&1 || \
+            warn "ssh-agent.service : activation à la prochaine ouverture de session"
+        systemctl --user enable ssh-add-keys.service >/dev/null 2>&1 || true
+        systemctl --user start ssh-add-keys.service >/dev/null 2>&1 || true
+        ok "agent SSH systemd activé (un seul agent pour toute la session)"
+    else
+        warn "systemd utilisateur injoignable ici (session non graphique ?)."
+        warn "les unités sont écrites ; elles démarreront à la prochaine session."
     fi
+    return 0
+}
+
+# --- Variable d'environnement dans le shell ---------------------------------
+_ssh_shell_env() {
+    local rc f
+    for f in "${HOME}/.bashrc" "${HOME}/.zshrc"; do
+        [[ -f "$f" ]] || continue
+
+        # Retire l'ancien bloc qui lançait un agent par terminal.
+        if grep -q 'devsetup:ssh-agent' "$f" && ! (( DRY_RUN )); then
+            sed -i.devsetup-bak '/# devsetup:ssh-agent/,/^ssh-add -l/d' "$f"
+            warn "ancien démarrage d'agent retiré de $(basename "$f") (un agent par terminal)"
+        fi
+
+        if grep -q 'devsetup:ssh-sock' "$f"; then
+            skip "SSH_AUTH_SOCK dans $(basename "$f")"
+            continue
+        fi
+        if (( DRY_RUN )); then ok "[dry-run] SSH_AUTH_SOCK dans $(basename "$f")"; continue; fi
+
+        cat >>"$f" <<'EOF'
+
+# devsetup:ssh-sock — pointe vers l'agent systemd unique de la session
+export SSH_AUTH_SOCK="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/ssh-agent.socket"
+EOF
+        ok "SSH_AUTH_SOCK exporté dans $(basename "$f")"
+    done
+    return 0
+}
+
+# --- Publication de la clé publique sur GitHub ------------------------------
+_ssh_publish_github() {
+    local d="${HOME}/.ssh" pub=""
+
+    # Préfère la clé par défaut ; sinon la première publique trouvée.
+    if [[ -f "${d}/id_ed25519.pub" ]]; then
+        pub="${d}/id_ed25519.pub"
+    else
+        pub=$(find "$d" -maxdepth 1 -name '*.pub' 2>/dev/null | sort | head -n1)
+    fi
+    [[ -n "$pub" ]] || { warn "aucune clé publique — publication GitHub ignorée."; return 0; }
+
     if ! have gh; then
-        warn "GitHub CLI absent (module 'apps') — ajoute la clé à la main :"
-        warn "  https://github.com/settings/ssh/new"
+        warn "GitHub CLI absent — ajoute la clé à la main : https://github.com/settings/ssh/new"
         return 0
     fi
     if ! gh auth status >/dev/null 2>&1; then
         warn "gh non authentifié. Lance 'gh auth login', puis :"
-        warn "  gh ssh-key add ${key}.pub --title \"\$(hostname -s)\""
+        warn "  gh ssh-key add ${pub} --title \"\$(hostname -s)\""
         return 0
     fi
 
     local fp
-    fp=$(ssh-keygen -lf "${key}.pub" 2>/dev/null | awk '{print $2}')
+    fp=$(ssh-keygen -lf "$pub" 2>/dev/null | awk '{print $2}')
     if gh ssh-key list 2>/dev/null | grep -qF "$fp"; then
         skip "clé publique déjà présente sur GitHub"
     else
-        run gh ssh-key add "${key}.pub" --title "$(hostname -s 2>/dev/null || hostname)"
+        run gh ssh-key add "$pub" --title "$(hostname -s 2>/dev/null || hostname)"
         ok "clé publique ajoutée au compte GitHub"
     fi
+    return 0
 }
 
 # --- apps ------------------------------------------------------------------

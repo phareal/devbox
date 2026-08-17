@@ -27,7 +27,7 @@ chmod +x ubuntu26-devsetup.sh
 | `k8s` | kubectl, helm, k9s, kubectx/kubens, kind, minikube, kustomize |
 | `jetbrains` | JetBrains Toolbox, PhpStorm, PyCharm Professional |
 | `apps` | VS Code (dépôt Microsoft), Postman, GitHub CLI |
-| `ssh` | Clé ed25519, ssh-agent, `~/.ssh/config`, publication de la clé publique sur GitHub |
+| `ssh` | Agent systemd persistant, passphrases en trousseau, `~/.ssh/config`, publication de la clé publique sur GitHub |
 | `langs` | Node (fnm + LTS), uv, Go, Rust, PHP + Composer |
 | `cuda` | Pilote NVIDIA open, CUDA Toolkit, nvidia-container-toolkit |
 | `tweaks` | Limites inotify / nofile pour les IDE, défauts git |
@@ -100,6 +100,44 @@ Il n'envoie **rien** sur le réseau. Le transport de l'archive est ton geste, pa
 > Une clé privée ne doit jamais entrer dans un dépôt git, un drive, un mail ou un chat. Sur un dépôt public, elle est compromise en quelques minutes : des bots scannent GitHub en continu, et supprimer le fichier ne l'efface pas de l'historique. La seule réponse à une clé exposée est sa révocation.
 
 Le `.gitignore` de ce dépôt bloque `id_*`, `*.pem`, `*.key`, `*.age`, `*.gpg`, `*.enc` et `ssh-backup*` — un garde-fou contre un `git add -A` distrait.
+
+### Module `ssh` — ne plus jamais retaper sa passphrase
+
+Le problème classique : un `eval $(ssh-agent)` dans le `.bashrc` lance **un agent par terminal**, donc la passphrase est redemandée dans chaque onglet, et les clés se rechargent en boucle.
+
+Ce module installe à la place un agent **unique par session**, géré par systemd :
+
+- `ssh-agent.service` (unité utilisateur) tient un socket fixe dans `$XDG_RUNTIME_DIR` ;
+- `SSH_AUTH_SOCK` pointe dessus depuis les shells (`.bashrc` / `.zshrc`) **et** depuis les applications graphiques (`~/.config/environment.d/`), donc les IDE JetBrains et VS Code voient les mêmes clés que le terminal ;
+- `ssh-add-keys.service` charge **toutes** les clés privées de `~/.ssh` à l'ouverture de session — détectées par leur en-tête `-----BEGIN ... PRIVATE KEY-----`, pas par leur nom, donc les `.pem` sont pris aussi.
+
+Pour que le chargement soit silencieux, mémorise la passphrase une fois par clé :
+
+```bash
+ssh-key-remember ~/.ssh/id_ed25519
+```
+
+Elle part dans le trousseau de session (libsecret), qui se déverrouille avec ton mot de passe de session. Ensuite, plus rien à taper — jamais.
+
+| Commande | Rôle |
+|---|---|
+| `ssh-key-remember <clé>` | Mémorise la passphrase, après l'avoir **vérifiée** contre la clé |
+| `ssh-add-all` | Charge dans l'agent les clés absentes ; liste celles dont la passphrase manque |
+| `ssh-askpass-secret` | Fournit la passphrase à `ssh-add` depuis le trousseau (appelé automatiquement) |
+
+Vérifier l'état :
+
+```bash
+systemctl --user status ssh-agent.service
+ssh-add -l                       # doit lister toutes tes clés
+```
+
+Notes :
+
+- `ssh-key-remember` **vérifie la passphrase avant de la stocker**. Une passphrase fausse en trousseau échouerait en silence à chaque session, ce qui est pire qu'une passphrase absente.
+- Ni ce script ni les helpers ne passent la passphrase en argument de commande : elle transite par un askpass jetable, jamais par `argv`, qui est lisible par tous dans `ps`.
+- `IdentitiesOnly yes` n'est **pas** activé globalement. Il limiterait `ssh` aux seules clés déclarées par hôte dans `~/.ssh/config`, et couperait l'accès à tout serveur dont la clé est simplement chargée dans l'agent.
+- Sur une machine **sans session graphique** (serveur, SSH pur), le trousseau reste verrouillé : les clés ne se chargent pas seules, `ssh-add` reste nécessaire une fois par session.
 
 ### Licences JetBrains
 
