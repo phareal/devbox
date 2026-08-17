@@ -29,7 +29,7 @@ chmod +x ubuntu26-devsetup.sh
 | `apps` | VS Code (dépôt Microsoft), Postman, GitHub CLI |
 | `ssh` | Agent systemd persistant, passphrases en trousseau, `~/.ssh/config`, publication de la clé publique sur GitHub |
 | `langs` | Node (fnm + LTS), uv, Go, Rust, PHP + Composer |
-| `wm` | Bureau i3 desktop : i3-wm, rofi, polybar (thème colorblocks), picom, dunst |
+| `wm` | Bureau i3 en Catppuccin Mocha : i3-wm, alacritty, rofi, polybar, picom, feh |
 | `cuda` | Pilote NVIDIA open, CUDA Toolkit, nvidia-container-toolkit |
 | `tweaks` | Limites inotify / nofile pour les IDE, défauts git |
 
@@ -108,6 +108,24 @@ Le `launch.sh` du thème est corrigé au passage : `polybar -q` masquait toute e
 | `$mod+r` | Mode redimensionnement |
 | `$mod+l` | Verrouiller l'écran |
 | `$mod+Shift+e` | Quitter la session |
+
+### Catppuccin Mocha de bout en bout
+
+Terminal, barre, lanceur et fond d'écran partagent la même palette.
+
+**Alacritty** devient le terminal par défaut du système (`update-alternatives --set x-terminal-emulator`), donc celui qu'ouvrent aussi les applications tierces et les fichiers `.desktop`. Sa palette est **écrite en dur** plutôt que téléchargée : elle est figée, et une coupure réseau laisserait sinon le terminal sans thème.
+
+`~/.config/alacritty/alacritty.toml` utilise `[general] import` — depuis Alacritty 0.14 la clé a quitté la racine, et resolute embarque la **0.16.1**.
+
+**Fond d'écran** posé par `~/.local/bin/devsetup-wallpaper`, lancé par i3 :
+
+```
+~/.local/share/wallpapers/wallpaper     ← remplace ce fichier, rien d'autre à toucher
+```
+
+Le script utilise `feh --bg-fill` si l'image existe, sinon un aplat `#1e1e2e` via `xsetroot` — sans ce repli, une image absente laisse le fond X en gris moucheté d'origine. Un fond Catppuccin est téléchargé par défaut ; si le réseau manque, l'aplat prend le relais et tu déposes l'image plus tard.
+
+**Polybar** : le `colors.ini` du thème passe en Mocha, les huit *shades* de colorblocks recevant le dégradé bleu → lavande plutôt que l'orange d'origine. **rofi** et **picom** étaient déjà sur cette palette.
 
 ### Services GNOME sous i3
 

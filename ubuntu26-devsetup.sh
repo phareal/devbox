@@ -1027,7 +1027,7 @@ mod_cuda() {
 }
 
 # --- wm --------------------------------------------------------------------
-mod_wm_desc="Bureau i3 desktop : i3-wm (gaps intégrés), rofi, polybar thème colorblocks, picom, dunst"
+mod_wm_desc="Bureau i3 en Catppuccin Mocha : i3-wm, alacritty, rofi, polybar, picom, feh"
 mod_wm() {
     # i3-gaps n'existe plus : les gaps sont dans i3 depuis la 4.22, le fork a
     # été fusionné en amont puis archivé.
@@ -1036,20 +1036,26 @@ mod_wm() {
     # dépendance. Le verrouillage passe par xss-lock + xsecurelock, pilotés
     # par loginctl : la même commande que GNOME, donc le même geste dans les
     # deux sessions.
-    apt_install i3-wm rofi polybar picom dunst feh \
+    apt_install i3-wm alacritty rofi polybar picom dunst feh \
                 x11-xserver-utils xdotool maim xclip \
                 libnotify-bin playerctl \
                 arandr lxappearance fonts-font-awesome papirus-icon-theme \
                 xss-lock gnome-screensaver xsecurelock \
                 gnome-settings-daemon gnome-themes-extra
 
-    # Terminal : on se branche sur ce qui est réellement présent plutôt que
-    # d'imposer un émulateur.
-    local term="x-terminal-emulator"
-    if have alacritty; then term="alacritty"
-    elif have kitty; then term="kitty"
-    elif have gnome-terminal; then term="gnome-terminal"
+    # Alacritty devient x-terminal-emulator, donc le terminal qu'ouvrent les
+    # applications tierces (rofi, gestionnaires de fichiers, .desktop).
+    local term="alacritty"
+    if have alacritty; then
+        run sudo update-alternatives --set x-terminal-emulator /usr/bin/alacritty >/dev/null 2>&1 || \
+            warn "alternative x-terminal-emulator non modifiée"
+    else
+        warn "alacritty absent — repli sur x-terminal-emulator"
+        term="x-terminal-emulator"
     fi
+
+    _wm_alacritty_config
+    _wm_wallpaper
 
     _wm_lock_helper
     _wm_i3_config "$term"
@@ -1091,6 +1097,18 @@ exec --no-startup-id /usr/libexec/gsd-keyboard
 exec --no-startup-id /usr/libexec/gsd-housekeeping
 GSD
             ok "services GNOME ajoutés à la config i3 (bindings volume retirés)"
+            touched=0
+        fi
+        if ! grep -q 'devsetup-wallpaper' "$cfg"; then
+            cat >>"$cfg" <<'FEH'
+exec_always --no-startup-id $HOME/.local/bin/devsetup-wallpaper
+FEH
+            ok "fond d'écran (feh) ajouté à la config i3"
+            touched=0
+        fi
+        if have alacritty && grep -qE '^bindsym \$mod\+Return exec --no-startup-id (x-terminal-emulator|gnome-terminal|kitty)$' "$cfg"; then
+            sed -i 's|^\(bindsym \$mod+Return exec --no-startup-id \).*|\1alacritty|' "$cfg"
+            ok "terminal d'i3 basculé sur alacritty"
             touched=0
         fi
         if grep -q 'xss-lock --transfer-sleep-lock -- xsecurelock' "$cfg"; then
@@ -1209,6 +1227,7 @@ exec --no-startup-id /usr/libexec/gsd-housekeeping
 
 exec --no-startup-id gnome-screensaver
 exec --no-startup-id xss-lock --transfer-sleep-lock -- $HOME/.local/bin/devsetup-lock
+exec_always --no-startup-id $HOME/.local/bin/devsetup-wallpaper
 exec --no-startup-id picom -b
 exec --no-startup-id dunst
 EOF
@@ -1226,6 +1245,7 @@ _wm_polybar_config() {
         # Thème déjà en place : on n'y touche pas, hormis les retraits que ce
         # module garantit (le color-switch n'est pas voulu ici).
         local touched=1
+        _wm_catppuccin_colors "$dir" && touched=0
         _wm_adapt_config "$dir" && touched=0
         _wm_patch_theme_scripts "$dir" && touched=0
         _wm_strip_color_switch "$dir" && touched=0
@@ -1250,6 +1270,7 @@ _wm_polybar_config() {
     cp -r "$tmp/pt/simple/colorblocks" "$dir"
     rm -rf "$tmp"
 
+    _wm_catppuccin_colors "$dir" >/dev/null || true
     _wm_adapt_config "$dir" >/dev/null || true
     _wm_patch_theme_scripts "$dir" >/dev/null || true
     _wm_strip_color_switch "$dir" >/dev/null || true
@@ -1258,6 +1279,144 @@ _wm_polybar_config() {
 
     ok "thème colorblocks installé dans ${dir}"
     ok "lancement : ${dir}/launch.sh — relance i3 (Super+Shift+r) pour l'appliquer"
+    return 0
+}
+
+# Alacritty en Catppuccin Mocha. La palette est écrite en dur plutôt que
+# téléchargée : elle est figée, et une coupure réseau laisserait sinon le
+# terminal sans thème. Depuis la 0.14 la clé "import" vit sous [general] et
+# non plus à la racine ; resolute embarque la 0.16, d'où la forme moderne.
+_wm_alacritty_config() {
+    local dir="${HOME}/.config/alacritty"
+    local theme="${dir}/catppuccin-mocha.toml"
+    local cfg="${dir}/alacritty.toml"
+
+    if (( DRY_RUN )); then ok "[dry-run] ${cfg} (Catppuccin Mocha)"; return 0; fi
+    install -d -m 755 "$dir"
+
+    if [[ -f "$theme" ]]; then
+        skip "palette Catppuccin Mocha (alacritty)"
+    else
+        cat >"$theme" <<'EOF'
+# Catppuccin Mocha — https://github.com/catppuccin/alacritty
+
+[colors.primary]
+background        = "#1e1e2e"
+foreground        = "#cdd6f4"
+dim_foreground    = "#7f849c"
+bright_foreground = "#cdd6f4"
+
+[colors.cursor]
+text   = "#1e1e2e"
+cursor = "#f5e0dc"
+
+[colors.vi_mode_cursor]
+text   = "#1e1e2e"
+cursor = "#b4befe"
+
+[colors.selection]
+text       = "#1e1e2e"
+background = "#f5e0dc"
+
+[colors.normal]
+black   = "#45475a"
+red     = "#f38ba8"
+green   = "#a6e3a1"
+yellow  = "#f9e2af"
+blue    = "#89b4fa"
+magenta = "#f5c2e7"
+cyan    = "#94e2d5"
+white   = "#bac2de"
+
+[colors.bright]
+black   = "#585b70"
+red     = "#f38ba8"
+green   = "#a6e3a1"
+yellow  = "#f9e2af"
+blue    = "#89b4fa"
+magenta = "#f5c2e7"
+cyan    = "#94e2d5"
+white   = "#a6adc8"
+
+[colors.dim]
+black   = "#45475a"
+red     = "#f38ba8"
+green   = "#a6e3a1"
+yellow  = "#f9e2af"
+blue    = "#89b4fa"
+magenta = "#f5c2e7"
+cyan    = "#94e2d5"
+white   = "#bac2de"
+EOF
+        ok "palette Catppuccin Mocha écrite (${theme})"
+    fi
+
+    if [[ -f "$cfg" ]]; then
+        skip "config alacritty (${cfg})"
+        return 0
+    fi
+
+    cat >"$cfg" <<'EOF'
+# Alacritty — config posée par devsetup.
+
+[general]
+import = ["~/.config/alacritty/catppuccin-mocha.toml"]
+
+[font]
+size = 11
+
+[font.normal]
+family = "JetBrainsMono Nerd Font"
+style = "Regular"
+
+[window]
+padding = { x = 10, y = 10 }
+dynamic_padding = true
+opacity = 0.96
+
+[scrolling]
+history = 50000
+EOF
+    ok "config alacritty écrite (${cfg})"
+    return 0
+}
+
+# Fond d'écran. Le chemin est fixe et le fichier interchangeable : remplacer
+# l'image à cet emplacement suffit, sans toucher à la config i3.
+_wm_wallpaper() {
+    local dir="${HOME}/.local/share/wallpapers"
+    local wp="${dir}/wallpaper"
+    local bin="${HOME}/.local/bin/devsetup-wallpaper"
+
+    if (( DRY_RUN )); then ok "[dry-run] ${wp}"; return 0; fi
+    install -d -m 755 "$dir" "${HOME}/.local/bin"
+
+    # Poseur de fond : feh si une image est là, sinon un aplat Mocha. Sans ce
+    # repli, une image absente laisse le fond X en gris moucheté d'origine.
+    cat >"$bin" <<'EOF'
+#!/usr/bin/env bash
+wp="${HOME}/.local/share/wallpapers/wallpaper"
+if [[ -s "$wp" ]] && command -v feh >/dev/null 2>&1; then
+    exec feh --no-fehbg --bg-fill "$wp"
+fi
+command -v xsetroot >/dev/null 2>&1 && exec xsetroot -solid '#1e1e2e'
+EOF
+    chmod 755 "$bin"
+
+    if [[ -s "$wp" ]]; then
+        skip "fond d'écran (${wp})"
+        return 0
+    fi
+
+    if curl -fsSL --max-time 30 \
+         "https://raw.githubusercontent.com/orangci/walls-catppuccin-mocha/main/blueprint.png" \
+         -o "$wp" 2>/dev/null && [[ -s "$wp" ]]; then
+        ok "fond d'écran Catppuccin posé (${wp})"
+    else
+        rm -f "$wp"
+        warn "fond par défaut non téléchargé — aplat Mocha en attendant."
+        warn "dépose l'image de ton choix dans ${wp}"
+    fi
     return 0
 }
 
@@ -1298,6 +1457,42 @@ exit 1
 EOF
     chmod 755 "$f"
     ok "verrou installé : ${f} (gnome-screensaver, repli xsecurelock)"
+    return 0
+}
+
+# Palette du thème en Catppuccin Mocha, pour que la barre s'accorde au
+# terminal, à rofi et au fond d'écran. colorblocks expose huit "shades" que la
+# barre utilise pour colorer ses blocs : on y met le dégradé bleu/lavande de
+# Mocha plutôt que l'orange d'origine.
+_wm_catppuccin_colors() {
+    local dir="$1" f="${dir}/colors.ini"
+
+    [[ -f "$f" ]] || return 1
+    grep -q 'devsetup:catppuccin' "$f" && return 1
+
+    cat >"$f" <<'EOF'
+;; Catppuccin Mocha — posé par devsetup:catppuccin
+;; https://github.com/catppuccin/catppuccin
+
+[color]
+
+;; main colors
+background = #1e1e2e
+foreground = #cdd6f4
+foreground-alt = #bac2de
+alpha = #00000000
+
+;; shades — dégradé bleu → lavande de Mocha
+shade1 = #74c7ec
+shade2 = #89b4fa
+shade3 = #89b4fa
+shade4 = #b4befe
+shade5 = #cba6f7
+shade6 = #f5c2e7
+shade7 = #a6e3a1
+shade8 = #f9e2af
+EOF
+    ok "palette polybar passée en Catppuccin Mocha"
     return 0
 }
 
