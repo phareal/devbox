@@ -1026,6 +1026,421 @@ mod_cuda() {
     warn "pilote NVIDIA installé : redémarrage requis avant que nvidia-smi fonctionne."
 }
 
+# --- wm --------------------------------------------------------------------
+mod_wm_desc="Bureau i3 : i3-wm (gaps intégrés), rofi, polybar, picom, dunst, Nerd Font"
+mod_wm() {
+    # i3-gaps n'existe plus : les gaps sont dans i3 depuis la 4.22, le fork a
+    # été fusionné en amont puis archivé.
+    #
+    # On installe i3-wm et NON le métapaquet i3, qui tirerait i3lock en
+    # dépendance. Conséquence assumée : aucun verrouillage d'écran n'est
+    # installé (voir l'avertissement en fin de module).
+    apt_install i3-wm rofi polybar picom dunst feh \
+                x11-xserver-utils xdotool maim xclip \
+                libnotify-bin playerctl brightnessctl \
+                arandr lxappearance fonts-font-awesome
+
+    # Terminal : on se branche sur ce qui est réellement présent plutôt que
+    # d'imposer un émulateur.
+    local term="x-terminal-emulator"
+    if have alacritty; then term="alacritty"
+    elif have kitty; then term="kitty"
+    elif have gnome-terminal; then term="gnome-terminal"
+    fi
+
+    _wm_nerd_font
+    _wm_i3_config "$term"
+    _wm_polybar_config
+    _wm_rofi_config
+    _wm_picom_config
+
+    printf '\n'
+    warn "i3 est une session X11 : choisis « i3 » via l'engrenage de l'écran"
+    warn "de connexion. La session Ubuntu par défaut est en Wayland."
+    warn "Aucun verrouillage d'écran n'est installé (i3lock écarté à ta demande)."
+    warn "Si tu en veux un plus tard :  sudo apt install i3lock xss-lock"
+    return 0
+}
+
+# Sans Nerd Font, polybar affiche des carrés à la place des icônes.
+_wm_nerd_font() {
+    local dir="${HOME}/.local/share/fonts"
+    if [[ -n "$(find "$dir" -name 'JetBrainsMono*Nerd*' -print -quit 2>/dev/null)" ]]; then
+        skip "JetBrainsMono Nerd Font"
+        return 0
+    fi
+    if (( DRY_RUN )); then ok "[dry-run] JetBrainsMono Nerd Font"; return 0; fi
+
+    local tag tmp
+    tag=$(gh_latest_tag ryanoasis/nerd-fonts) || tag=""
+    [[ -n "$tag" ]] || { warn "version des Nerd Fonts non résolue — police ignorée."; return 0; }
+
+    install -d -m 755 "$dir"
+    tmp=$(mktemp -d)
+    if curl -fsSL "https://github.com/ryanoasis/nerd-fonts/releases/download/${tag}/JetBrainsMono.tar.xz" \
+            -o "${tmp}/font.tar.xz"; then
+        tar -xJf "${tmp}/font.tar.xz" -C "$dir" 2>/dev/null || true
+        fc-cache -f >/dev/null 2>&1 || true
+        ok "JetBrainsMono Nerd Font installée (${tag})"
+    else
+        warn "téléchargement de la Nerd Font échoué — polybar affichera des carrés."
+    fi
+    rm -rf "$tmp"
+    return 0
+}
+
+_wm_i3_config() {
+    local term="$1" cfg="${HOME}/.config/i3/config"
+
+    if [[ -f "$cfg" ]]; then skip "config i3 (${cfg})"; return 0; fi
+    if (( DRY_RUN )); then ok "[dry-run] ${cfg}"; return 0; fi
+
+    install -d -m 755 "$(dirname "$cfg")"
+    cat >"$cfg" <<'EOF'
+# i3 — config de départ posée par devsetup.
+# Les gaps sont natifs depuis i3 4.22 : aucun i3-gaps n'est nécessaire.
+
+set $mod Mod4
+font pango:JetBrainsMono Nerd Font 10
+
+# --- Apparence -------------------------------------------------------------
+gaps inner 10
+gaps outer 4
+smart_gaps on
+smart_borders on
+default_border pixel 2
+default_floating_border pixel 2
+
+# --- Lancement -------------------------------------------------------------
+bindsym $mod+Return exec --no-startup-id @TERM@
+bindsym $mod+d      exec --no-startup-id rofi -show drun
+bindsym $mod+Tab    exec --no-startup-id rofi -show window
+bindsym $mod+Shift+q kill
+
+# Capture d'écran : plein écran, ou sélection à la souris.
+bindsym Print       exec --no-startup-id maim ~/Images/$(date +%F_%T).png
+bindsym Shift+Print exec --no-startup-id maim -s | xclip -selection clipboard -t image/png
+
+# --- Focus et déplacement --------------------------------------------------
+bindsym $mod+h focus left
+bindsym $mod+j focus down
+bindsym $mod+k focus up
+bindsym $mod+l focus right
+
+bindsym $mod+Shift+h move left
+bindsym $mod+Shift+j move down
+bindsym $mod+Shift+k move up
+bindsym $mod+Shift+l move right
+
+bindsym $mod+b split h
+bindsym $mod+v split v
+bindsym $mod+f fullscreen toggle
+bindsym $mod+space floating toggle
+bindsym $mod+Shift+space focus mode_toggle
+
+# --- Espaces de travail ----------------------------------------------------
+set $ws1 "1"
+set $ws2 "2"
+set $ws3 "3"
+set $ws4 "4"
+set $ws5 "5"
+set $ws6 "6"
+
+bindsym $mod+1 workspace number $ws1
+bindsym $mod+2 workspace number $ws2
+bindsym $mod+3 workspace number $ws3
+bindsym $mod+4 workspace number $ws4
+bindsym $mod+5 workspace number $ws5
+bindsym $mod+6 workspace number $ws6
+
+bindsym $mod+Shift+1 move container to workspace number $ws1
+bindsym $mod+Shift+2 move container to workspace number $ws2
+bindsym $mod+Shift+3 move container to workspace number $ws3
+bindsym $mod+Shift+4 move container to workspace number $ws4
+bindsym $mod+Shift+5 move container to workspace number $ws5
+bindsym $mod+Shift+6 move container to workspace number $ws6
+
+# --- Redimensionnement -----------------------------------------------------
+mode "resize" {
+    bindsym h resize shrink width 10 px or 10 ppt
+    bindsym j resize grow height 10 px or 10 ppt
+    bindsym k resize shrink height 10 px or 10 ppt
+    bindsym l resize grow width 10 px or 10 ppt
+    bindsym Return mode "default"
+    bindsym Escape mode "default"
+}
+bindsym $mod+r mode "resize"
+
+# --- Son et luminosité -----------------------------------------------------
+bindsym XF86AudioRaiseVolume exec --no-startup-id pactl set-sink-volume @DEFAULT_SINK@ +5%
+bindsym XF86AudioLowerVolume exec --no-startup-id pactl set-sink-volume @DEFAULT_SINK@ -5%
+bindsym XF86AudioMute        exec --no-startup-id pactl set-sink-mute @DEFAULT_SINK@ toggle
+bindsym XF86AudioPlay        exec --no-startup-id playerctl play-pause
+bindsym XF86AudioNext        exec --no-startup-id playerctl next
+bindsym XF86AudioPrev        exec --no-startup-id playerctl previous
+bindsym XF86MonBrightnessUp   exec --no-startup-id brightnessctl set +10%
+bindsym XF86MonBrightnessDown exec --no-startup-id brightnessctl set 10%-
+
+# --- Session ---------------------------------------------------------------
+bindsym $mod+Shift+c reload
+bindsym $mod+Shift+r restart
+bindsym $mod+Shift+e exec --no-startup-id i3-nagbar -t warning \
+    -m 'Quitter la session i3 ?' -B 'Quitter' 'i3-msg exit'
+
+# --- Démarrage -------------------------------------------------------------
+# polybar remplace i3bar : aucune section bar {} ici, ce serait deux barres.
+exec_always --no-startup-id $HOME/.config/polybar/launch.sh
+exec --no-startup-id picom -b
+exec --no-startup-id dunst
+EOF
+
+    sed -i "s|@TERM@|${term}|" "$cfg"
+    install -d -m 755 "${HOME}/Images"
+    ok "config i3 écrite (${cfg}, terminal : ${term})"
+    return 0
+}
+
+_wm_polybar_config() {
+    local dir="${HOME}/.config/polybar"
+
+    if [[ -f "${dir}/config.ini" ]]; then skip "config polybar"; return 0; fi
+    if (( DRY_RUN )); then ok "[dry-run] ${dir}/config.ini"; return 0; fi
+
+    install -d -m 755 "$dir"
+
+    # Interface réseau réelle, plutôt qu'un eth0 codé en dur qui n'existe plus.
+    local iface
+    iface=$(ip route show default 2>/dev/null | awk '{print $5}' | head -n1 || true)
+    [[ -n "$iface" ]] || iface="eth0"
+
+    cat >"${dir}/config.ini" <<EOF
+; polybar — barre de départ posée par devsetup.
+
+[colors]
+background = #1e1e2e
+foreground = #cdd6f4
+primary    = #89b4fa
+alert      = #f38ba8
+disabled   = #6c7086
+
+[bar/main]
+; MONITOR est fourni par launch.sh, une instance par écran branché.
+monitor = \${env:MONITOR:}
+width   = 100%
+height  = 26pt
+radius  = 0
+
+background = \${colors.background}
+foreground = \${colors.foreground}
+
+line-size = 3pt
+padding-right = 1
+module-margin = 1
+
+font-0 = JetBrainsMono Nerd Font:size=10;2
+font-1 = JetBrainsMono Nerd Font:style=Bold:size=10;2
+
+modules-left   = i3
+modules-center = xwindow
+modules-right  = pulseaudio cpu memory filesystem network date
+
+cursor-click = pointer
+enable-ipc   = true
+
+[module/i3]
+type = internal/i3
+pin-workspaces = true
+show-urgent = true
+index-sort = true
+enable-click = true
+enable-scroll = false
+
+label-focused = %index%
+label-focused-background = \${colors.primary}
+label-focused-foreground = \${colors.background}
+label-focused-padding = 1
+
+label-unfocused = %index%
+label-unfocused-padding = 1
+
+label-urgent = %index%
+label-urgent-background = \${colors.alert}
+label-urgent-padding = 1
+
+[module/xwindow]
+type = internal/xwindow
+label = %title:0:70:…%
+
+[module/pulseaudio]
+type = internal/pulseaudio
+format-volume = <label-volume>
+label-volume = " %percentage%%"
+label-muted = " muet"
+label-muted-foreground = \${colors.disabled}
+
+[module/cpu]
+type = internal/cpu
+interval = 2
+label = " %percentage%%"
+
+[module/memory]
+type = internal/memory
+interval = 2
+label = " %percentage_used%%"
+
+[module/filesystem]
+type = internal/fs
+interval = 60
+mount-0 = /
+label-mounted = " %percentage_used%%"
+
+[module/network]
+type = internal/network
+interface = ${iface}
+interval = 5
+label-connected = " %essid% %downspeed%"
+label-disconnected = " hors ligne"
+label-disconnected-foreground = \${colors.disabled}
+
+[module/date]
+type = internal/date
+interval = 30
+date = %d/%m
+time = %H:%M
+label = " %date% %time%"
+label-foreground = \${colors.primary}
+EOF
+
+    # Le module batterie n'a de sens que s'il y a une batterie.
+    local bat adp
+    # find sort en erreur si /sys/class/power_supply n'existe pas (VM, conteneur) :
+    # sans le || true, set -e ferait avorter tout le module.
+    bat=$(find /sys/class/power_supply -maxdepth 1 -name 'BAT*' -printf '%f\n' 2>/dev/null | head -n1 || true)
+    adp=$(find /sys/class/power_supply -maxdepth 1 -name 'A[CD]*' -printf '%f\n' 2>/dev/null | head -n1 || true)
+    if [[ -n "$bat" ]]; then
+        cat >>"${dir}/config.ini" <<EOF
+
+[module/battery]
+type = internal/battery
+battery = ${bat}
+adapter = ${adp:-AC}
+low-at = 15
+label-charging = " %percentage%%"
+label-discharging = " %percentage%%"
+label-full = " %percentage%%"
+label-low = " %percentage%%"
+label-low-foreground = \${colors.alert}
+EOF
+        sed -i "s|^modules-right  = .*|modules-right  = pulseaudio cpu memory filesystem network battery date|" "${dir}/config.ini"
+        ok "batterie ${bat} détectée — module ajouté à polybar"
+    else
+        sed -i "s|^modules-right  = .*|modules-right  = pulseaudio cpu memory filesystem network date|" "${dir}/config.ini"
+    fi
+
+    cat >"${dir}/launch.sh" <<'EOF'
+#!/usr/bin/env bash
+# Relance polybar proprement : une instance par écran branché.
+killall -q polybar 2>/dev/null
+while pgrep -u "$UID" -x polybar >/dev/null 2>&1; do sleep 0.5; done
+
+if command -v xrandr >/dev/null 2>&1; then
+    mapfile -t monitors < <(xrandr --query | awk '/ connected/{print $1}')
+    if [[ ${#monitors[@]} -gt 0 ]]; then
+        for m in "${monitors[@]}"; do
+            MONITOR="$m" polybar --reload main >>"/tmp/polybar-${m}.log" 2>&1 &
+        done
+        exit 0
+    fi
+fi
+polybar --reload main >>/tmp/polybar.log 2>&1 &
+EOF
+    chmod 755 "${dir}/launch.sh"
+    ok "config polybar écrite (interface réseau : ${iface})"
+    return 0
+}
+
+_wm_rofi_config() {
+    local cfg="${HOME}/.config/rofi/config.rasi"
+    if [[ -f "$cfg" ]]; then skip "config rofi"; return 0; fi
+    if (( DRY_RUN )); then ok "[dry-run] ${cfg}"; return 0; fi
+
+    install -d -m 755 "$(dirname "$cfg")"
+    cat >"$cfg" <<'EOF'
+configuration {
+    modi: "drun,run,window";
+    show-icons: true;
+    display-drun: " ";
+    display-run: " ";
+    display-window: " ";
+    drun-display-format: "{name}";
+    terminal: "x-terminal-emulator";
+}
+
+* {
+    background:     #1e1e2e;
+    background-alt: #313244;
+    foreground:     #cdd6f4;
+    selected:       #89b4fa;
+    urgent:         #f38ba8;
+}
+
+window {
+    width: 40%;
+    border-radius: 8px;
+    background-color: @background;
+}
+
+inputbar {
+    padding: 10px;
+    background-color: @background-alt;
+    text-color: @foreground;
+}
+
+listview { lines: 8; padding: 6px; }
+
+element { padding: 8px; border-radius: 6px; }
+element selected {
+    background-color: @selected;
+    text-color: @background;
+}
+element-text { text-color: inherit; }
+element-icon { size: 20px; padding: 0 8px 0 0; }
+EOF
+    ok "config rofi écrite (${cfg})"
+    return 0
+}
+
+_wm_picom_config() {
+    local cfg="${HOME}/.config/picom.conf"
+    if [[ -f "$cfg" ]]; then skip "config picom"; return 0; fi
+    if (( DRY_RUN )); then ok "[dry-run] ${cfg}"; return 0; fi
+
+    cat >"$cfg" <<'EOF'
+# picom — compositeur. Sans lui : pas d'ombres, et des fenêtres qui scintillent
+# lors des changements d'espace de travail.
+backend = "glx";
+vsync = true;
+
+shadow = true;
+shadow-radius = 12;
+shadow-opacity = 0.35;
+shadow-offset-x = -12;
+shadow-offset-y = -12;
+
+fading = true;
+fade-in-step = 0.06;
+fade-out-step = 0.06;
+
+corner-radius = 8;
+rounded-corners-exclude = [ "class_g = 'Polybar'" ];
+
+inactive-opacity = 1.0;
+frame-opacity = 1.0;
+EOF
+    ok "config picom écrite (${cfg})"
+    return 0
+}
+
 # --- tweaks ----------------------------------------------------------------
 mod_tweaks_desc="Réglages système : limites inotify/file-max pour IDE, git sensible"
 mod_tweaks() {
@@ -1056,7 +1471,7 @@ EOF"
 # Orchestration
 # ===========================================================================
 # L'ordre compte : 'apps' installe gh, dont 'ssh' se sert pour publier la clé.
-ALL_MODULES=(base shell docker lazy k8s jetbrains apps ssh langs cuda tweaks)
+ALL_MODULES=(base shell docker lazy k8s jetbrains apps ssh langs wm cuda tweaks)
 DEFAULT_MODULES=(base shell docker lazy k8s jetbrains apps ssh langs tweaks)   # cuda hors défaut
 
 usage() {
