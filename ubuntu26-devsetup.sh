@@ -1027,7 +1027,7 @@ mod_cuda() {
 }
 
 # --- wm --------------------------------------------------------------------
-mod_wm_desc="Bureau i3 : i3-wm (gaps intégrés), rofi, polybar, picom, dunst, Nerd Font"
+mod_wm_desc="Bureau i3 desktop : i3-wm (gaps intégrés), rofi, polybar thème colorblocks, picom, dunst"
 mod_wm() {
     # i3-gaps n'existe plus : les gaps sont dans i3 depuis la 4.22, le fork a
     # été fusionné en amont puis archivé.
@@ -1037,7 +1037,7 @@ mod_wm() {
     # installé (voir l'avertissement en fin de module).
     apt_install i3-wm rofi polybar picom dunst feh \
                 x11-xserver-utils xdotool maim xclip \
-                libnotify-bin playerctl brightnessctl \
+                libnotify-bin playerctl \
                 arandr lxappearance fonts-font-awesome
 
     # Terminal : on se branche sur ce qui est réellement présent plutôt que
@@ -1048,7 +1048,6 @@ mod_wm() {
     elif have gnome-terminal; then term="gnome-terminal"
     fi
 
-    _wm_nerd_font
     _wm_i3_config "$term"
     _wm_polybar_config
     _wm_rofi_config
@@ -1062,37 +1061,19 @@ mod_wm() {
     return 0
 }
 
-# Sans Nerd Font, polybar affiche des carrés à la place des icônes.
-_wm_nerd_font() {
-    local dir="${HOME}/.local/share/fonts"
-    if [[ -n "$(find "$dir" -name 'JetBrainsMono*Nerd*' -print -quit 2>/dev/null)" ]]; then
-        skip "JetBrainsMono Nerd Font"
-        return 0
-    fi
-    if (( DRY_RUN )); then ok "[dry-run] JetBrainsMono Nerd Font"; return 0; fi
-
-    local tag tmp
-    tag=$(gh_latest_tag ryanoasis/nerd-fonts) || tag=""
-    [[ -n "$tag" ]] || { warn "version des Nerd Fonts non résolue — police ignorée."; return 0; }
-
-    install -d -m 755 "$dir"
-    tmp=$(mktemp -d)
-    if curl -fsSL "https://github.com/ryanoasis/nerd-fonts/releases/download/${tag}/JetBrainsMono.tar.xz" \
-            -o "${tmp}/font.tar.xz"; then
-        tar -xJf "${tmp}/font.tar.xz" -C "$dir" 2>/dev/null || true
-        fc-cache -f >/dev/null 2>&1 || true
-        ok "JetBrainsMono Nerd Font installée (${tag})"
-    else
-        warn "téléchargement de la Nerd Font échoué — polybar affichera des carrés."
-    fi
-    rm -rf "$tmp"
-    return 0
-}
-
 _wm_i3_config() {
     local term="$1" cfg="${HOME}/.config/i3/config"
 
-    if [[ -f "$cfg" ]]; then skip "config i3 (${cfg})"; return 0; fi
+    if [[ -f "$cfg" ]]; then
+        # Migration : une config déjà posée peut pointer sur l'ancien launch.sh.
+        if grep -q 'polybar/launch.sh' "$cfg" && ! grep -q 'colorblocks/launch.sh' "$cfg"; then
+            sed -i 's|polybar/launch.sh|polybar/colorblocks/launch.sh|' "$cfg"
+            ok "config i3 migrée vers le launch.sh de colorblocks"
+        else
+            skip "config i3 (${cfg})"
+        fi
+        return 0
+    fi
     if (( DRY_RUN )); then ok "[dry-run] ${cfg}"; return 0; fi
 
     install -d -m 755 "$(dirname "$cfg")"
@@ -1101,7 +1082,7 @@ _wm_i3_config() {
 # Les gaps sont natifs depuis i3 4.22 : aucun i3-gaps n'est nécessaire.
 
 set $mod Mod4
-font pango:JetBrainsMono Nerd Font 10
+font pango:Iosevka Nerd Font 10
 
 # --- Apparence -------------------------------------------------------------
 gaps inner 10
@@ -1178,8 +1159,6 @@ bindsym XF86AudioMute        exec --no-startup-id pactl set-sink-mute @DEFAULT_S
 bindsym XF86AudioPlay        exec --no-startup-id playerctl play-pause
 bindsym XF86AudioNext        exec --no-startup-id playerctl next
 bindsym XF86AudioPrev        exec --no-startup-id playerctl previous
-bindsym XF86MonBrightnessUp   exec --no-startup-id brightnessctl set +10%
-bindsym XF86MonBrightnessDown exec --no-startup-id brightnessctl set 10%-
 
 # --- Session ---------------------------------------------------------------
 bindsym $mod+Shift+c reload
@@ -1189,7 +1168,7 @@ bindsym $mod+Shift+e exec --no-startup-id i3-nagbar -t warning \
 
 # --- Démarrage -------------------------------------------------------------
 # polybar remplace i3bar : aucune section bar {} ici, ce serait deux barres.
-exec_always --no-startup-id $HOME/.config/polybar/launch.sh
+exec_always --no-startup-id $HOME/.config/polybar/colorblocks/launch.sh
 exec --no-startup-id picom -b
 exec --no-startup-id dunst
 EOF
@@ -1201,161 +1180,53 @@ EOF
 }
 
 _wm_polybar_config() {
-    local dir="${HOME}/.config/polybar"
+    local dir="${HOME}/.config/polybar/colorblocks"
 
-    if [[ -f "${dir}/config.ini" ]]; then skip "config polybar"; return 0; fi
-    if (( DRY_RUN )); then ok "[dry-run] ${dir}/config.ini"; return 0; fi
+    if [[ -f "${dir}/config.ini" ]]; then skip "thème polybar colorblocks"; return 0; fi
+    if (( DRY_RUN )); then ok "[dry-run] thème polybar colorblocks (adi1090x)"; return 0; fi
 
-    install -d -m 755 "$dir"
+    local tmp; tmp=$(mktemp -d)
+    if ! git clone -q --depth 1 https://github.com/adi1090x/polybar-themes "$tmp/pt"; then
+        warn "clone de adi1090x/polybar-themes échoué — polybar reste sans thème."
+        rm -rf "$tmp"; return 0
+    fi
 
-    # Interface réseau réelle, plutôt qu'un eth0 codé en dur qui n'existe plus.
-    local iface
+    # Polices du thème : les .ttf de la racine (feather.ttf porte les icônes).
+    # Les sous-dossiers panels/ et terminus/ servent aux autres thèmes.
+    install -d -m 755 "${HOME}/.local/share/fonts"
+    cp "$tmp/pt/fonts/"*.ttf "${HOME}/.local/share/fonts/"
+    fc-cache -f >/dev/null 2>&1 || true
+
+    install -d -m 755 "${HOME}/.config/polybar"
+    cp -r "$tmp/pt/simple/colorblocks" "$dir"
+    rm -rf "$tmp"
+
+    # Scripts hors sujet sur un desktop de dev Ubuntu :
+    # checkupdates/updates.sh sont Arch (pacman), pywal.sh exige pywal.
+    rm -f "${dir}/scripts/checkupdates" "${dir}/scripts/updates.sh" "${dir}/scripts/pywal.sh"
+
+    # --- Adaptation desktop -------------------------------------------------
+    # Le thème sort configuré pour un portable Arch : BAT1/ACAD codés en dur,
+    # mpd dans la barre, module réseau sur wlan0, volume via alsa.
+    local iface netmod
     iface=$(ip route show default 2>/dev/null | awk '{print $5}' | head -n1 || true)
     [[ -n "$iface" ]] || iface="eth0"
+    case "$iface" in
+        en*|eth*) netmod="wired-network" ;;
+        *)        netmod="network" ;;
+    esac
+    sed -i "s/^interface = eth0/interface = ${iface}/" "${dir}/modules.ini"
+    sed -i "s/^interface = wlan0/interface = ${iface}/" "${dir}/modules.ini"
 
-    cat >"${dir}/config.ini" <<EOF
-; polybar — barre de départ posée par devsetup.
+    # battery retiré (pas de batterie), alsa remplacé par pulseaudio
+    # (PipeWire/Pulse sur Ubuntu), mpd retiré (exige le démon MPD).
+    sed -i "s/^modules-left = launcher sep workspaces sep mpd/modules-left = launcher sep workspaces/" "${dir}/config.ini"
+    sed -i "s/alsa battery network/pulseaudio ${netmod}/" "${dir}/config.ini"
 
-[colors]
-background = #1e1e2e
-foreground = #cdd6f4
-primary    = #89b4fa
-alert      = #f38ba8
-disabled   = #6c7086
+    chmod 755 "${dir}/launch.sh" "${dir}/scripts/"*.sh 2>/dev/null || true
 
-[bar/main]
-; MONITOR est fourni par launch.sh, une instance par écran branché.
-monitor = \${env:MONITOR:}
-width   = 100%
-height  = 26pt
-radius  = 0
-
-background = \${colors.background}
-foreground = \${colors.foreground}
-
-line-size = 3pt
-padding-right = 1
-module-margin = 1
-
-font-0 = JetBrainsMono Nerd Font:size=10;2
-font-1 = JetBrainsMono Nerd Font:style=Bold:size=10;2
-
-modules-left   = i3
-modules-center = xwindow
-modules-right  = pulseaudio cpu memory filesystem network date
-
-cursor-click = pointer
-enable-ipc   = true
-
-[module/i3]
-type = internal/i3
-pin-workspaces = true
-show-urgent = true
-index-sort = true
-enable-click = true
-enable-scroll = false
-
-label-focused = %index%
-label-focused-background = \${colors.primary}
-label-focused-foreground = \${colors.background}
-label-focused-padding = 1
-
-label-unfocused = %index%
-label-unfocused-padding = 1
-
-label-urgent = %index%
-label-urgent-background = \${colors.alert}
-label-urgent-padding = 1
-
-[module/xwindow]
-type = internal/xwindow
-label = %title:0:70:…%
-
-[module/pulseaudio]
-type = internal/pulseaudio
-format-volume = <label-volume>
-label-volume = " %percentage%%"
-label-muted = " muet"
-label-muted-foreground = \${colors.disabled}
-
-[module/cpu]
-type = internal/cpu
-interval = 2
-label = " %percentage%%"
-
-[module/memory]
-type = internal/memory
-interval = 2
-label = " %percentage_used%%"
-
-[module/filesystem]
-type = internal/fs
-interval = 60
-mount-0 = /
-label-mounted = " %percentage_used%%"
-
-[module/network]
-type = internal/network
-interface = ${iface}
-interval = 5
-label-connected = " %essid% %downspeed%"
-label-disconnected = " hors ligne"
-label-disconnected-foreground = \${colors.disabled}
-
-[module/date]
-type = internal/date
-interval = 30
-date = %d/%m
-time = %H:%M
-label = " %date% %time%"
-label-foreground = \${colors.primary}
-EOF
-
-    # Le module batterie n'a de sens que s'il y a une batterie.
-    local bat adp
-    # find sort en erreur si /sys/class/power_supply n'existe pas (VM, conteneur) :
-    # sans le || true, set -e ferait avorter tout le module.
-    bat=$(find /sys/class/power_supply -maxdepth 1 -name 'BAT*' -printf '%f\n' 2>/dev/null | head -n1 || true)
-    adp=$(find /sys/class/power_supply -maxdepth 1 -name 'A[CD]*' -printf '%f\n' 2>/dev/null | head -n1 || true)
-    if [[ -n "$bat" ]]; then
-        cat >>"${dir}/config.ini" <<EOF
-
-[module/battery]
-type = internal/battery
-battery = ${bat}
-adapter = ${adp:-AC}
-low-at = 15
-label-charging = " %percentage%%"
-label-discharging = " %percentage%%"
-label-full = " %percentage%%"
-label-low = " %percentage%%"
-label-low-foreground = \${colors.alert}
-EOF
-        sed -i "s|^modules-right  = .*|modules-right  = pulseaudio cpu memory filesystem network battery date|" "${dir}/config.ini"
-        ok "batterie ${bat} détectée — module ajouté à polybar"
-    else
-        sed -i "s|^modules-right  = .*|modules-right  = pulseaudio cpu memory filesystem network date|" "${dir}/config.ini"
-    fi
-
-    cat >"${dir}/launch.sh" <<'EOF'
-#!/usr/bin/env bash
-# Relance polybar proprement : une instance par écran branché.
-killall -q polybar 2>/dev/null
-while pgrep -u "$UID" -x polybar >/dev/null 2>&1; do sleep 0.5; done
-
-if command -v xrandr >/dev/null 2>&1; then
-    mapfile -t monitors < <(xrandr --query | awk '/ connected/{print $1}')
-    if [[ ${#monitors[@]} -gt 0 ]]; then
-        for m in "${monitors[@]}"; do
-            MONITOR="$m" polybar --reload main >>"/tmp/polybar-${m}.log" 2>&1 &
-        done
-        exit 0
-    fi
-fi
-polybar --reload main >>/tmp/polybar.log 2>&1 &
-EOF
-    chmod 755 "${dir}/launch.sh"
-    ok "config polybar écrite (interface réseau : ${iface})"
+    ok "thème colorblocks installé (réseau : ${iface} → module ${netmod})"
+    ok "lancement : ${dir}/launch.sh — relance i3 (Super+Shift+r) pour l'appliquer"
     return 0
 }
 

@@ -29,7 +29,7 @@ chmod +x ubuntu26-devsetup.sh
 | `apps` | VS Code (dépôt Microsoft), Postman, GitHub CLI |
 | `ssh` | Agent systemd persistant, passphrases en trousseau, `~/.ssh/config`, publication de la clé publique sur GitHub |
 | `langs` | Node (fnm + LTS), uv, Go, Rust, PHP + Composer |
-| `wm` | Bureau i3 : i3-wm, rofi, polybar, picom, dunst, Nerd Font + configs de départ |
+| `wm` | Bureau i3 desktop : i3-wm, rofi, polybar (thème colorblocks), picom, dunst |
 | `cuda` | Pilote NVIDIA open, CUDA Toolkit, nvidia-container-toolkit |
 | `tweaks` | Limites inotify / nofile pour les IDE, défauts git |
 
@@ -65,19 +65,27 @@ chmod +x ubuntu26-devsetup.sh
 
 `i3-gaps` n'existe plus : les gaps sont dans i3 mainline depuis la **4.22**, le fork ayant été fusionné en amont puis archivé. Le module installe donc `i3-wm`, et pas le métapaquet `i3` — celui-ci tirerait `i3lock` en dépendance, volontairement écarté ici. **Aucun verrouillage d'écran n'est installé** ; pour en ajouter un : `sudo apt install i3lock xss-lock`.
 
-Installés : `i3-wm`, `rofi`, `polybar`, `picom` (compositeur), `dunst` (notifications), `feh`, `maim` + `xclip` (captures), `playerctl`, `brightnessctl`, `arandr`, `lxappearance`, et la **JetBrainsMono Nerd Font** — sans elle, polybar affiche des carrés à la place des icônes.
+Installés : `i3-wm`, `rofi`, `polybar`, `picom` (compositeur), `dunst` (notifications), `feh`, `maim` + `xclip` (captures), `playerctl`, `arandr`, `lxappearance`.
 
 Configs de départ écrites **seulement si absentes**, jamais écrasées :
 
 | Fichier | Contenu |
 |---|---|
-| `~/.config/i3/config` | Gaps, raccourcis vim (`hjkl`), 6 espaces, rofi sur `$mod+d`, captures, son/luminosité |
-| `~/.config/polybar/config.ini` | Barre unique : espaces i3, titre, son, CPU, RAM, disque, réseau, date |
-| `~/.config/polybar/launch.sh` | Relance propre, **une instance par écran** détecté via `xrandr` |
+| `~/.config/i3/config` | Gaps, raccourcis vim (`hjkl`), 6 espaces, rofi sur `$mod+d`, captures, son |
+| `~/.config/polybar/colorblocks/` | Thème **colorblocks** de [adi1090x/polybar-themes](https://github.com/adi1090x/polybar-themes), adapté desktop |
 | `~/.config/rofi/config.rasi` | Thème sombre, mode `drun` avec icônes |
 | `~/.config/picom.conf` | Ombres, fondus, coins arrondis (polybar exclu) |
 
-Deux valeurs sont calculées à l'installation plutôt que codées en dur : l'**interface réseau** (via `ip route`, pas un `eth0` fossile) et la **présence d'une batterie** — le module `battery` n'est ajouté que sur un portable.
+Le thème polybar est cloné depuis adi1090x/polybar-themes puis **adapté à un desktop de dev Ubuntu** — il sort configuré pour un portable Arch :
+
+- `battery` retiré de la barre (BAT1/ACAD codés en dur, sans objet sans batterie) ;
+- `mpd` retiré (exige le démon MPD) ;
+- `alsa` remplacé par le module `pulseaudio` du thème (PipeWire/Pulse sur Ubuntu) ;
+- module réseau branché sur l'**interface réelle** (via `ip route`) : `wired-network` si elle est filaire (`en*`/`eth*`), `network` sinon ;
+- scripts Arch-only écartés : `checkupdates` et `updates.sh` (pacman), `pywal.sh` (exige pywal) ;
+- polices du thème installées dans `~/.local/share/fonts` (`feather.ttf` porte les icônes — sans elle, des carrés).
+
+Restent utilisables : `launcher.sh` et `powermenu.sh` (rofi), `color-switch.sh` + `colors-dark/light/random` pour changer la palette depuis la barre. Le lancement passe par le `launch.sh` du thème, câblé dans l'`exec_always` d'i3 ; une config i3 déjà posée par une version précédente du module est migrée automatiquement vers ce chemin.
 
 `$mod` est la touche **Super**. Raccourcis principaux :
 
