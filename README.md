@@ -30,10 +30,11 @@ chmod +x ubuntu26-devsetup.sh
 | `ssh` | Agent systemd persistant, passphrases en trousseau, `~/.ssh/config`, publication de la clé publique sur GitHub |
 | `langs` | Node (fnm + LTS), uv, Go, Rust, PHP + Composer |
 | `wm` | Bureau i3 en Catppuccin Mocha : i3-wm, alacritty, rofi, polybar, picom, feh |
+| `tools` | PCManFM, gvfs (corbeille, montage USB, partages réseau), file-roller, xarchiver |
 | `cuda` | Pilote NVIDIA open, CUDA Toolkit, nvidia-container-toolkit |
 | `tweaks` | Limites inotify / nofile pour les IDE, défauts git |
 
-`cuda` et `wm` sont **hors des modules par défaut** : il faut `--all`, ou `--only cuda` / `--only wm`.
+`cuda`, `wm` et `tools` sont **hors des modules par défaut** : il faut `--all`, ou `--only <module>`.
 
 ### Options
 
@@ -107,6 +108,7 @@ Le `launch.sh` du thème est corrigé au passage : `polybar -q` masquait toute e
 | `$mod+Tab` | Bascule entre fenêtres |
 | `$mod+Shift+q` | Fermer la fenêtre |
 | `$mod+r` | Mode redimensionnement |
+| `$mod+e` | Gestionnaire de fichiers |
 | `$mod+l` | Verrouiller l'écran |
 | `$mod+Shift+e` | Quitter la session |
 
@@ -149,6 +151,16 @@ GNOME installé sur la machine ne suffit pas : un paquet ne fait rien tant qu'il
 Chacun est indépendant : commenter sa ligne dans `~/.config/i3/config` suffit à le retirer. `gsd-media-keys` reprenant volume et sourdine, les `bindsym XF86AudioRaiseVolume`/`LowerVolume`/`Mute` sont retirés de la config — les garder ferait doublon. Le contrôle du lecteur (`playerctl`) reste côté i3.
 
 Ubuntu resolute embarque **GNOME 50** (`gnome-settings-daemon-50`).
+
+### Module `tools` — gestionnaire de fichiers
+
+```bash
+./ubuntu26-devsetup.sh --only tools
+```
+
+PCManFM 1.4, avec ce qui le rend réellement utilisable : `gvfs`, `gvfs-backends` et `gvfs-fuse` — sans eux, pas de corbeille, pas de montage automatique des clés USB, pas d'accès aux partages réseau. Plus `file-roller` et `xarchiver` pour les archives, et `udisks2` pour le montage sans privilèges.
+
+Il devient le gestionnaire de fichiers par défaut (`xdg-mime default pcmanfm.desktop inode/directory`), pour qu'« ouvrir le dossier » depuis un navigateur ou un IDE tombe dessus. Si une config i3 existe, le raccourci `$mod+e` y est ajouté.
 
 ### Verrouillage d'écran
 

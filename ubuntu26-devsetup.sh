@@ -1183,6 +1183,7 @@ bindsym $mod+Return exec --no-startup-id @TERM@
 bindsym $mod+d      exec --no-startup-id rofi -show drun
 bindsym $mod+Tab    exec --no-startup-id rofi -show window
 bindsym $mod+Shift+q kill
+bindsym $mod+e      exec --no-startup-id pcmanfm
 
 # Capture d'écran : plein écran, ou sélection à la souris.
 bindsym Print       exec --no-startup-id maim ~/Images/$(date +%F_%T).png
@@ -1758,6 +1759,47 @@ EOF
     return 0
 }
 
+# --- tools -----------------------------------------------------------------
+mod_tools_desc="Utilitaires de bureau : PCManFM (fichiers), gvfs, archives"
+mod_tools() {
+    # gvfs n'est pas décoratif : sans lui PCManFM n'a ni corbeille, ni montage
+    # automatique des clés USB, ni accès aux partages réseau.
+    apt_install_tolerant pcmanfm gvfs gvfs-backends gvfs-fuse \
+                file-roller xarchiver xdg-utils shared-mime-info \
+                udisks2 || true
+
+    if ! have pcmanfm; then
+        warn "pcmanfm absent — configuration ignorée."
+        return 0
+    fi
+
+    # Gestionnaire de fichiers par défaut, pour que « ouvrir le dossier »
+    # depuis un navigateur ou un IDE tombe sur PCManFM.
+    if (( DRY_RUN )); then
+        ok "[dry-run] pcmanfm en gestionnaire de fichiers par défaut"
+    else
+        xdg-mime default pcmanfm.desktop inode/directory 2>/dev/null || \
+            warn "association inode/directory non modifiée"
+        ok "PCManFM défini comme gestionnaire de fichiers par défaut"
+    fi
+
+    # Raccourci i3, si le bureau i3 est en place.
+    local cfg="${HOME}/.config/i3/config"
+    if [[ -f "$cfg" ]] && ! grep -q 'pcmanfm' "$cfg"; then
+        if (( DRY_RUN )); then
+            ok "[dry-run] raccourci \$mod+e vers pcmanfm"
+        else
+            cat >>"$cfg" <<'PCM'
+
+# Gestionnaire de fichiers
+bindsym $mod+e exec --no-startup-id pcmanfm
+PCM
+            ok "raccourci \$mod+e ajouté (PCManFM)"
+        fi
+    fi
+    return 0
+}
+
 # --- tweaks ----------------------------------------------------------------
 mod_tweaks_desc="Réglages système : limites inotify/file-max pour IDE, git sensible"
 mod_tweaks() {
@@ -1788,7 +1830,7 @@ EOF"
 # Orchestration
 # ===========================================================================
 # L'ordre compte : 'apps' installe gh, dont 'ssh' se sert pour publier la clé.
-ALL_MODULES=(base shell docker lazy k8s jetbrains apps ssh langs wm cuda tweaks)
+ALL_MODULES=(base shell docker lazy k8s jetbrains apps ssh langs wm tools cuda tweaks)
 DEFAULT_MODULES=(base shell docker lazy k8s jetbrains apps ssh langs tweaks)   # cuda hors défaut
 
 usage() {
