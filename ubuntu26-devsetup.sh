@@ -1040,7 +1040,7 @@ mod_wm() {
                 x11-xserver-utils xdotool maim xclip \
                 libnotify-bin playerctl \
                 arandr lxappearance fonts-font-awesome papirus-icon-theme \
-                xss-lock xsecurelock
+                xss-lock gnome-screensaver xsecurelock
 
     # Terminal : on se branche sur ce qui est réellement présent plutôt que
     # d'imposer un émulateur.
@@ -1050,6 +1050,7 @@ mod_wm() {
     elif have gnome-terminal; then term="gnome-terminal"
     fi
 
+    _wm_lock_helper
     _wm_i3_config "$term"
     _wm_polybar_config
     _wm_rofi_config
@@ -1068,12 +1069,18 @@ _wm_i3_config() {
 
     if [[ -f "$cfg" ]]; then
         # Migration : une config déjà posée peut pointer sur l'ancien launch.sh.
+        local touched=1
         if grep -q 'polybar/launch.sh' "$cfg" && ! grep -q 'colorblocks/launch.sh' "$cfg"; then
             sed -i 's|polybar/launch.sh|polybar/colorblocks/launch.sh|' "$cfg"
             ok "config i3 migrée vers le launch.sh de colorblocks"
-        else
-            skip "config i3 (${cfg})"
+            touched=0
         fi
+        if grep -q 'xss-lock --transfer-sleep-lock -- xsecurelock' "$cfg"; then
+            sed -i 's|exec --no-startup-id xss-lock --transfer-sleep-lock -- xsecurelock|exec --no-startup-id gnome-screensaver\nexec --no-startup-id xss-lock --transfer-sleep-lock -- $HOME/.local/bin/devsetup-lock|' "$cfg"
+            ok "config i3 migrée vers le verrou gnome-screensaver"
+            touched=0
+        fi
+        (( touched )) && skip "config i3 (${cfg})"
         return 0
     fi
     if (( DRY_RUN )); then ok "[dry-run] ${cfg}"; return 0; fi
@@ -1174,7 +1181,8 @@ bindsym $mod+Shift+e exec --no-startup-id i3-nagbar -t warning \
 # --- Démarrage -------------------------------------------------------------
 # polybar remplace i3bar : aucune section bar {} ici, ce serait deux barres.
 exec_always --no-startup-id $HOME/.config/polybar/colorblocks/launch.sh
-exec --no-startup-id xss-lock --transfer-sleep-lock -- xsecurelock
+exec --no-startup-id gnome-screensaver
+exec --no-startup-id xss-lock --transfer-sleep-lock -- $HOME/.local/bin/devsetup-lock
 exec --no-startup-id picom -b
 exec --no-startup-id dunst
 EOF
@@ -1227,6 +1235,46 @@ _wm_polybar_config() {
     return 0
 }
 
+# Verrou d'écran. gnome-screensaver est le verrou GNOME historique, autonome
+# sous X11 : c'est le seul moyen d'avoir l'écran GNOME dans une session i3,
+# gnome-shell n'y tournant pas.
+#
+# xss-lock exige une commande BLOQUANTE : il la lance et considère l'écran
+# déverrouillé dès qu'elle rend la main. Or gnome-screensaver-command --lock
+# rend la main aussitôt. D'où cette attente active sur --query, sans laquelle
+# --transfer-sleep-lock ne garantit plus le verrouillage avant la veille.
+_wm_lock_helper() {
+    local f="${HOME}/.local/bin/devsetup-lock"
+    if (( DRY_RUN )); then ok "[dry-run] ${f}"; return 0; fi
+
+    install -d -m 755 "${HOME}/.local/bin"
+    cat >"$f" <<'EOF'
+#!/usr/bin/env bash
+# Verrouille l'écran et ne rend la main qu'au déverrouillage.
+set -uo pipefail
+
+if command -v gnome-screensaver-command >/dev/null 2>&1; then
+    if ! pgrep -x gnome-screensaver >/dev/null 2>&1; then
+        gnome-screensaver &
+        sleep 0.5
+    fi
+    if gnome-screensaver-command --lock >/dev/null 2>&1; then
+        while gnome-screensaver-command --query 2>/dev/null | grep -q 'is active'; do
+            sleep 1
+        done
+        exit 0
+    fi
+fi
+
+# Repli si gnome-screensaver est indisponible ou refuse de verrouiller.
+command -v xsecurelock >/dev/null 2>&1 && exec xsecurelock
+exit 1
+EOF
+    chmod 755 "$f"
+    ok "verrou installé : ${f} (gnome-screensaver, repli xsecurelock)"
+    return 0
+}
+
 # Le thème sort configuré pour un portable Arch : BAT1/ACAD codés en dur, mpd
 # dans la barre, réseau sur wlan0, volume via alsa. Adaptation à un desktop
 # Ubuntu. Les motifs disparaissent après le premier passage, donc rejouable.
@@ -1271,7 +1319,7 @@ _wm_adapt_config() {
 # Les correctifs ayant évolué, ils ne sont pas rejouables en place sur un
 # fichier déjà patché par une version antérieure. On repart donc des scripts
 # d'origine dès que le marqueur de révision n'est pas à jour.
-_WM_SCRIPTS_REV=2
+_WM_SCRIPTS_REV=3
 
 _wm_patch_theme_scripts() {
     local dir="$1" rev="${dir}/scripts/.devsetup-rev"
@@ -1304,6 +1352,16 @@ _wm_patch_theme_scripts() {
     sed -i 's|if \[\[ "\$DESKTOP_SESSION" == "Openbox" \]\]; then|if true; then|' "$pm"
 
     sed -i 's| -modi drun||' "$lc"
+
+    # launch.sh du thème : "-q" masque toute erreur et n'écrit aucun log, ce qui
+    # rend un démarrage raté impossible à diagnostiquer. killall vient de psmisc,
+    # absent d'une install minimale ; pkill est dans procps, toujours présent.
+    local ls="${dir}/launch.sh"
+    if [[ -f "$ls" ]]; then
+        sed -i 's|^killall -q polybar|pkill -x polybar|' "$ls"
+        sed -i 's|polybar -q main -c "$DIR"/config.ini &|polybar main -c "$DIR"/config.ini >>"/tmp/polybar-${USER}.log" 2>\&1 \&|' "$ls"
+        chmod 755 "$ls"
+    fi
 
     chmod 755 "${dir}/scripts/"*.sh 2>/dev/null || true
     printf '%s\n' "$_WM_SCRIPTS_REV" >"$rev"

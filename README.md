@@ -95,7 +95,7 @@ Restent utilisables : `launcher.sh` et `powermenu.sh` (rofi), eux-mêmes corrig�
 
 `papirus-icon-theme` est installé, les `.rasi` du thème déclarant `icon-theme: "Papirus"`.
 
-Le lancement passe par le `launch.sh` du thème, câblé dans l'`exec_always` d'i3 ; une config i3 déjà posée par une version précédente du module est migrée automatiquement vers ce chemin, et un thème déjà installé se voit retirer le `color-switch` au passage.
+Le `launch.sh` du thème est corrigé au passage : `polybar -q` masquait toute erreur et n'écrivait aucun log, rendant un démarrage raté impossible à diagnostiquer — il écrit désormais dans `/tmp/polybar-$USER.log` ; et `killall` (paquet `psmisc`, absent d'une installation minimale) est remplacé par `pkill` (`procps`, toujours présent). Le lancement est câblé dans l'`exec_always` d'i3 ; une config i3 déjà posée par une version précédente du module est migrée automatiquement vers ce chemin, et un thème déjà installé se voit retirer le `color-switch` au passage.
 
 `$mod` est la touche **Super**. Raccourcis principaux :
 
@@ -111,17 +111,19 @@ Le lancement passe par le `launch.sh` du thème, câblé dans l'`exec_always` d'
 
 ### Verrouillage d'écran
 
-L'écran de verrouillage de GNOME **est** gnome-shell : il n'existe pas dans une session i3. En revanche, la commande que GNOME utilise pour verrouiller, elle, est réutilisable :
-
 ```
 Super+l        →  loginctl lock-session
 ```
 
-C'est le même geste dans les deux sessions. Sous GNOME, logind délègue à gnome-shell. Sous i3, **`xss-lock`** écoute le signal `Lock` de logind et lance **`xsecurelock`** (1.9.0 dans resolute). `i3lock` reste écarté.
+Un seul geste, valable dans les deux sessions. Sous GNOME, logind délègue à gnome-shell. Sous i3, **`xss-lock`** écoute le signal `Lock` de logind et lance le verrou.
 
-`xss-lock` est démarré par i3 avec `--transfer-sleep-lock`, ce qui verrouille **avant** la mise en veille et non après le réveil — sans quoi le bureau reste visible une fraction de seconde à la reprise.
+Le verrou est **`gnome-screensaver`** — le verrou GNOME historique, encore packagé dans resolute et autonome sous X11. C'est le seul moyen d'avoir l'écran GNOME dans une session i3 : l'écran de verrouillage du GNOME actuel *est* gnome-shell, qui n'y tourne pas. `i3lock` reste écarté ; `xsecurelock` sert de repli si gnome-screensaver est indisponible.
+
+Le tout passe par `~/.local/bin/devsetup-lock`, qui existe pour une raison précise : **`xss-lock` exige une commande bloquante**, considérant l'écran déverrouillé dès qu'elle rend la main — or `gnome-screensaver-command --lock` rend la main aussitôt. Le wrapper attend donc sur `--query` jusqu'au déverrouillage, faute de quoi `--transfer-sleep-lock` ne garantit plus le verrouillage *avant* la mise en veille.
 
 L'entrée **Lock** du powermenu passe par la même commande.
+
+> `gnome-screensaver` n'est plus maintenu en amont. C'est le compromis assumé pour obtenir l'écran GNOME sous i3 ; `xsecurelock`, déjà installé, est nettement plus solide si la sécurité prime sur l'apparence — il suffit de pointer `devsetup-lock` dessus.
 
 Note : `$mod+l` entrant en conflit avec le focus vers la droite, celui-ci passe sur `$mod+semicolon` (et `$mod+Shift+semicolon` pour déplacer).
 
