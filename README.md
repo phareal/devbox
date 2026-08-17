@@ -214,6 +214,21 @@ Note : `$mod+l` entrant en conflit avec le focus vers la droite, celui-ci passe 
 
 **i3 est une session X11.** Ubuntu ouvre par défaut une session Wayland : choisis « i3 » via l'engrenage de l'écran de connexion. La config n'inclut aucune section `bar {}`, polybar remplaçant i3bar — en garder une afficherait deux barres superposées.
 
+## `diagnose-freeze.sh`
+
+Isoler la cause d'un gel de session i3, par bissection plutôt que par intuition.
+
+```bash
+./diagnose-freeze.sh            # rapport dans /tmp/i3-freeze-report.txt
+./diagnose-freeze.sh --safe     # désactive tout ce que la config i3 lance
+./diagnose-freeze.sh --enable picom   # réactive un composant à la fois
+./diagnose-freeze.sh --restore  # remet la config d'origine
+```
+
+Le rapport rassemble ce qui compte : carte graphique et pilote en service, `glxinfo`, erreurs du **boot précédent** (`journalctl -b -1` — le gel n'a rien écrit dans le boot courant), messages noyau autour de `drm`/`oom`/`gpu hang`, erreurs Xorg, backend picom effectif, log polybar, et la liste des `exec` de la config i3.
+
+La méthode : `--safe` commente toutes les lignes de démarrage, puis on réactive un composant à la fois. Le dernier réactivé avant le retour du gel est le coupable. Plus lent qu'une hypothèse, mais concluant.
+
 ## `migrate-ssh-keys.sh`
 
 Transfert de `~/.ssh` d'une machine à l'autre, **toujours chiffré**.

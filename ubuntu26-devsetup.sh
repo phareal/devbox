@@ -1127,6 +1127,11 @@ _wm_i3_config() {
             ok "config i3 migrée vers le launch.sh de colorblocks"
             touched=0
         fi
+        if grep -qE '^exec --no-startup-id gnome-screensaver$' "$cfg"; then
+            sed -i 's|^exec --no-startup-id gnome-screensaver$|# retiré : verrouillait l'"'"'écran au démarrage. devsetup-lock le lance au besoin.\n# exec --no-startup-id gnome-screensaver|' "$cfg"
+            ok "autostart de gnome-screensaver retiré de la config i3"
+            touched=0
+        fi
         if ! grep -q 'gsd-xsettings' "$cfg"; then
             # gsd-media-keys reprend volume et sourdine : les bindings i3 feraient doublon.
             sed -i '/bindsym XF86AudioRaiseVolume/d;/bindsym XF86AudioLowerVolume/d;/bindsym XF86AudioMute/d' "$cfg"
@@ -1276,7 +1281,10 @@ exec --no-startup-id /usr/libexec/gsd-sound
 exec --no-startup-id /usr/libexec/gsd-keyboard
 exec --no-startup-id /usr/libexec/gsd-housekeeping
 
-exec --no-startup-id gnome-screensaver
+# gnome-screensaver n'est PAS démarré ici : non maintenu, il peut verrouiller
+# et noircir l'écran dès l'ouverture de session sans afficher son dialogue de
+# déverrouillage, ce qui est indiscernable d'un gel. devsetup-lock le lance à
+# la demande, au moment du verrouillage.
 exec --no-startup-id xss-lock --transfer-sleep-lock -- $HOME/.local/bin/devsetup-lock
 exec_always --no-startup-id $HOME/.local/bin/devsetup-wallpaper
 exec --no-startup-id picom -b
