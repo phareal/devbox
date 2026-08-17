@@ -1666,6 +1666,13 @@ _wm_adapt_config() {
         changed=0
     fi
 
+    # Le thème place sa barre en bas ; on la veut en haut.
+    if grep -q '^bottom = true' "${dir}/config.ini"; then
+        sed -i 's/^bottom = true/bottom = false/' "${dir}/config.ini"
+        ok "barre polybar déplacée en haut"
+        changed=0
+    fi
+
     (( changed == 0 )) && ok "barre adaptée desktop (réseau : ${iface} → ${netmod}, sans batterie ni mpd)"
     return $changed
 }

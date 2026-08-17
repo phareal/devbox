@@ -84,6 +84,7 @@ Le thème polybar est cloné depuis adi1090x/polybar-themes puis **adapté à un
 - `mpd` retiré (exige le démon MPD) ;
 - `alsa` remplacé par le module `pulseaudio` du thème (PipeWire/Pulse sur Ubuntu) ;
 - module réseau branché sur l'**interface réelle** (via `ip route`) : `wired-network` si elle est filaire (`en*`/`eth*`), `network` sinon ;
+- barre déplacée **en haut** (`bottom = false`), le thème la plaçant en bas ;
 - scripts Arch-only écartés : `checkupdates` et `updates.sh` (pacman), `pywal.sh` (exige pywal) ;
 - polices du thème installées dans `~/.local/share/fonts` (`feather.ttf` porte les icônes — sans elle, des carrés).
 
