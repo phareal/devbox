@@ -1330,22 +1330,29 @@ _wm_polybar_config() {
     return 0
 }
 
+# Version des Nerd Fonts, épinglée. Pour la relever : vérifier que l'asset
+# JetBrainsMono.tar.xz existe bien pour le tag visé avant de changer ce nombre.
+_WM_NERD_FONT_VERSION="v3.5.0"
+
 # JetBrainsMono Nerd Font : déclarée par alacritty, i3 et le style rofi. Sans
 # elle, les trois tombent en repli et les icônes deviennent des carrés. Le
 # thème polybar embarque sa propre Iosevka, laissée telle quelle.
 _wm_nerd_font() {
     local dir="${HOME}/.local/share/fonts"
 
-    if [[ -n "$(find "$dir" -iname 'JetBrainsMono*Nerd*' -print -quit 2>/dev/null)" ]]; then
+    # Le || true n'est pas décoratif : find sort en erreur si le dossier
+    # n'existe pas encore, et le trap ERR, hérité par le sous-shell via set -E,
+    # afficherait un échec alors que la condition, elle, se comporte bien.
+    if [[ -n "$(find "$dir" -iname 'JetBrainsMono*Nerd*' -print -quit 2>/dev/null || true)" ]]; then
         skip "JetBrainsMono Nerd Font"
         return 0
     fi
     if (( DRY_RUN )); then ok "[dry-run] JetBrainsMono Nerd Font"; return 0; fi
 
-    local tag tmp
-    tag=$(gh_latest_tag ryanoasis/nerd-fonts) || tag=""
-    [[ -n "$tag" ]] || { warn "version des Nerd Fonts non résolue — police ignorée."; return 0; }
-
+    # Version épinglée : l'API des releases est limitée en débit et renvoie des
+    # 429 en usage répété, et une police qui change sous les pieds fait bouger
+    # le rendu d'i3, alacritty et rofi sans qu'on l'ait demandé.
+    local tag="$_WM_NERD_FONT_VERSION" tmp
     install -d -m 755 "$dir"
     tmp=$(mktemp -d)
     if curl -fsSL --max-time 120 \
@@ -1353,9 +1360,10 @@ _wm_nerd_font() {
          -o "${tmp}/font.tar.xz" 2>/dev/null; then
         tar -xJf "${tmp}/font.tar.xz" -C "$dir" 2>/dev/null || true
         fc-cache -f >/dev/null 2>&1 || true
-        ok "JetBrainsMono Nerd Font installée (${tag})"
+        ok "JetBrainsMono Nerd Font ${tag} installée"
     else
-        warn "téléchargement de la Nerd Font échoué — polices en repli."
+        warn "téléchargement de JetBrainsMono ${tag} échoué — polices en repli."
+        warn "si le tag n'existe plus, ajuste _WM_NERD_FONT_VERSION dans ce script."
     fi
     rm -rf "$tmp"
     return 0

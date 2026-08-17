@@ -141,6 +141,8 @@ Pour ajuster, dans `~/.config/rofi/launchers/type-7/style-4.rasi` : `width` (blo
 
 **Polices** : `JetBrainsMono Nerd Font` pour i3, alacritty et rofi, qui la déclarent tous les trois — sans elle, repli silencieux et icônes en carrés. Le thème polybar garde son Iosevka, qu'il embarque.
 
+La version est **épinglée** (`_WM_NERD_FONT_VERSION`, actuellement `v3.5.0`) : l'API des releases est limitée en débit et renvoie des 429 en usage répété, et une police qui change sous les pieds ferait bouger le rendu des trois applications sans qu'on l'ait demandé. Pour la relever, vérifier d'abord que l'asset `JetBrainsMono.tar.xz` existe pour le tag visé.
+
 ### Services GNOME sous i3
 
 GNOME installé sur la machine ne suffit pas : un paquet ne fait rien tant qu'il n'est pas lancé, et `gnome-shell` ne peut pas l'être sous i3 — il *est* le gestionnaire de fenêtres, place déjà prise. Plutôt qu'une session hybride `gnome-session` + i3, fragile depuis que GNOME 46 pilote ses composants par unités systemd, le module lance à l'unité ce qui est utile :
