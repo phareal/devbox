@@ -1038,7 +1038,7 @@ mod_wm() {
     apt_install i3-wm rofi polybar picom dunst feh \
                 x11-xserver-utils xdotool maim xclip \
                 libnotify-bin playerctl \
-                arandr lxappearance fonts-font-awesome
+                arandr lxappearance fonts-font-awesome papirus-icon-theme
 
     # Terminal : on se branche sur ce qui est réellement présent plutôt que
     # d'imposer un émulateur.
@@ -1185,7 +1185,10 @@ _wm_polybar_config() {
     if [[ -f "${dir}/config.ini" ]]; then
         # Thème déjà en place : on n'y touche pas, hormis les retraits que ce
         # module garantit (le color-switch n'est pas voulu ici).
-        _wm_strip_color_switch "$dir" || skip "thème polybar colorblocks"
+        local touched=1
+        _wm_strip_color_switch "$dir" && touched=0
+        _wm_patch_theme_scripts "$dir" && touched=0
+        (( touched )) && skip "thème polybar colorblocks"
         return 0
     fi
     if (( DRY_RUN )); then ok "[dry-run] thème polybar colorblocks (adi1090x)"; return 0; fi
@@ -1229,12 +1232,46 @@ _wm_polybar_config() {
     sed -i "s/alsa battery network/pulseaudio ${netmod}/" "${dir}/config.ini"
 
     _wm_strip_color_switch "$dir" >/dev/null || true
+    _wm_patch_theme_scripts "$dir" >/dev/null || true
 
     chmod 755 "${dir}/launch.sh" "${dir}/scripts/"*.sh 2>/dev/null || true
 
     ok "thème colorblocks installé (réseau : ${iface} → module ${netmod})"
     ok "lancement : ${dir}/launch.sh — relance i3 (Super+Shift+r) pour l'appliquer"
     return 0
+}
+
+# Les scripts du thème visent Arch + portable. Corrections pour Ubuntu :
+#   - dir="~/..." : le tilde entre guillemets n'est PAS développé par bash,
+#     donc rofi ne trouvait aucun de ses thèmes (bug amont)
+#   - entrée Lock : appelle i3lock ou betterlockscreen, aucun des deux n'est
+#     installé ici, le clic ne faisait donc rien
+#   - suspend : mpc et amixer absents (pas de MPD, et Ubuntu est sur PipeWire)
+#   - logout : dépendait de $DESKTOP_SESSION valant exactement "i3"
+#   - launcher : "-modi drun" est déprécié depuis rofi 1.7.6 au profit de
+#     "-modes" ; "-show drun" suffit et marche sur toutes les versions
+_wm_patch_theme_scripts() {
+    local dir="$1" pm="${dir}/scripts/powermenu.sh" lc="${dir}/scripts/launcher.sh"
+    local changed=1
+
+    if [[ -f "$pm" ]] && grep -q 'dir="~/' "$pm"; then
+        sed -i 's|^dir="~/|dir="$HOME/|' "$pm"
+        sed -i 's|^options="\$lock\\n|options="|' "$pm"
+        sed -i '/^    \$lock)/,/^        ;;/d' "$pm"
+        sed -i '/mpc -q pause/d;/amixer set Master mute/d' "$pm"
+        sed -i '/openbox --exit/d;/bspc quit/d' "$pm"
+        sed -i '/elif \[\[ "\$DESKTOP_SESSION"/d' "$pm"
+        sed -i 's|if \[\[ "\$DESKTOP_SESSION" == "Openbox" \]\]; then|if true; then|' "$pm"
+        changed=0
+    fi
+
+    if [[ -f "$lc" ]] && grep -q -- '-modi drun' "$lc"; then
+        sed -i 's| -modi drun||' "$lc"
+        changed=0
+    fi
+
+    (( changed == 0 )) && ok "scripts du thème adaptés à Ubuntu (rofi, powermenu)"
+    return $changed
 }
 
 # Retire le sélecteur de palette du thème : le module de la barre et les
