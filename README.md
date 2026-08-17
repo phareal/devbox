@@ -85,7 +85,7 @@ Le thème polybar est cloné depuis adi1090x/polybar-themes puis **adapté à un
 - scripts Arch-only écartés : `checkupdates` et `updates.sh` (pacman), `pywal.sh` (exige pywal) ;
 - polices du thème installées dans `~/.local/share/fonts` (`feather.ttf` porte les icônes — sans elle, des carrés).
 
-Restent utilisables : `launcher.sh` et `powermenu.sh` (rofi), `color-switch.sh` + `colors-dark/light/random` pour changer la palette depuis la barre. Le lancement passe par le `launch.sh` du thème, câblé dans l'`exec_always` d'i3 ; une config i3 déjà posée par une version précédente du module est migrée automatiquement vers ce chemin.
+Restent utilisables : `launcher.sh` et `powermenu.sh` (rofi). Le lancement passe par le `launch.sh` du thème, câblé dans l'`exec_always` d'i3 ; une config i3 déjà posée par une version précédente du module est migrée automatiquement vers ce chemin, et un thème déjà installé se voit retirer le `color-switch` au passage.
 
 `$mod` est la touche **Super**. Raccourcis principaux :
 

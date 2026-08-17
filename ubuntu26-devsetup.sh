@@ -1182,7 +1182,12 @@ EOF
 _wm_polybar_config() {
     local dir="${HOME}/.config/polybar/colorblocks"
 
-    if [[ -f "${dir}/config.ini" ]]; then skip "thème polybar colorblocks"; return 0; fi
+    if [[ -f "${dir}/config.ini" ]]; then
+        # Thème déjà en place : on n'y touche pas, hormis les retraits que ce
+        # module garantit (le color-switch n'est pas voulu ici).
+        _wm_strip_color_switch "$dir" || skip "thème polybar colorblocks"
+        return 0
+    fi
     if (( DRY_RUN )); then ok "[dry-run] thème polybar colorblocks (adi1090x)"; return 0; fi
 
     local tmp; tmp=$(mktemp -d)
@@ -1223,11 +1228,35 @@ _wm_polybar_config() {
     sed -i "s/^modules-left = launcher sep workspaces sep mpd/modules-left = launcher sep workspaces/" "${dir}/config.ini"
     sed -i "s/alsa battery network/pulseaudio ${netmod}/" "${dir}/config.ini"
 
+    _wm_strip_color_switch "$dir" >/dev/null || true
+
     chmod 755 "${dir}/launch.sh" "${dir}/scripts/"*.sh 2>/dev/null || true
 
     ok "thème colorblocks installé (réseau : ${iface} → module ${netmod})"
     ok "lancement : ${dir}/launch.sh — relance i3 (Super+Shift+r) pour l'appliquer"
     return 0
+}
+
+# Retire le sélecteur de palette du thème : le module de la barre et les
+# scripts qu'il pilote. Rend 0 s'il a effectivement modifié quelque chose.
+_wm_strip_color_switch() {
+    local dir="$1" changed=1
+
+    if [[ -f "${dir}/config.ini" ]] && grep -q 'color-switch' "${dir}/config.ini"; then
+        sed -i 's/^\(modules-right = \)color-switch sep /\1/' "${dir}/config.ini"
+        changed=0
+    fi
+
+    local s
+    for s in color-switch.sh colors-dark.sh colors-light.sh random.sh; do
+        if [[ -e "${dir}/scripts/${s}" ]]; then
+            rm -f "${dir}/scripts/${s}"
+            changed=0
+        fi
+    done
+
+    (( changed == 0 )) && ok "color-switch retiré de la barre et des scripts"
+    return $changed
 }
 
 _wm_rofi_config() {
