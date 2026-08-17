@@ -490,9 +490,137 @@ EOF
     ok "${label} installé dans ${target} (commande : ${slug})"
 }
 
+# --- ssh -------------------------------------------------------------------
+mod_ssh_desc="Clés SSH : génération ed25519, ssh-agent, ~/.ssh/config, publication sur GitHub"
+mod_ssh() {
+    apt_install openssh-client
+
+    local d="${HOME}/.ssh"
+    local key="${d}/id_ed25519"
+
+    run install -d -m 700 "$d"
+
+    # --- Clé principale -----------------------------------------------------
+    # Aucune clé existante n'est écrasée : si le fichier est là, on n'y touche pas.
+    if [[ -f "$key" ]]; then
+        skip "clé ${key}"
+    elif (( DRY_RUN )); then
+        ok "[dry-run] génération de ${key}"
+    else
+        local comment="${USER}@$(hostname -s 2>/dev/null || hostname)"
+        if (( ASSUME_YES )); then
+            ssh-keygen -t ed25519 -a 100 -C "$comment" -f "$key" -N ""
+            warn "clé générée SANS passphrase (mode --yes)."
+            warn "ajoute-en une dès que possible :  ssh-keygen -p -f $key"
+        else
+            log "génération d'une clé ed25519 — choisis une passphrase (recommandé)."
+            ssh-keygen -t ed25519 -a 100 -C "$comment" -f "$key"
+        fi
+        ok "clé créée : ${key}"
+    fi
+
+    # --- Permissions --------------------------------------------------------
+    # OpenSSH refuse d'utiliser une clé privée lisible par d'autres.
+    if ! (( DRY_RUN )); then
+        chmod 700 "$d"
+        find "$d" -maxdepth 1 -type f ! -name '*.pub' ! -name 'known_hosts*' \
+             ! -name 'config' -exec chmod 600 {} + 2>/dev/null || true
+        find "$d" -maxdepth 1 -type f -name '*.pub' -exec chmod 644 {} + 2>/dev/null || true
+        [[ -f "${d}/config" ]] && chmod 600 "${d}/config"
+        ok "permissions de ~/.ssh normalisées (700 / 600 / 644)"
+    fi
+
+    # --- ~/.ssh/config ------------------------------------------------------
+    # Bloc délimité et écrit une seule fois : un config existant est préservé.
+    local cfg="${d}/config"
+    if [[ -f "$cfg" ]] && grep -q 'devsetup:managed' "$cfg"; then
+        skip "bloc ~/.ssh/config"
+    elif (( DRY_RUN )); then
+        ok "[dry-run] bloc ajouté à ${cfg}"
+    else
+        [[ -f "$cfg" ]] && cp -n "$cfg" "${cfg}.bak" 2>/dev/null || true
+        cat >>"$cfg" <<EOF
+
+# >>> devsetup:managed >>>
+Host *
+    AddKeysToAgent yes
+    IdentitiesOnly yes
+    ServerAliveInterval 60
+    ServerAliveCountMax 3
+    HashKnownHosts yes
+
+Host github.com
+    HostName github.com
+    User git
+    IdentityFile ${key}
+# <<< devsetup:managed <<<
+EOF
+        chmod 600 "$cfg"
+        ok "bloc de configuration ajouté à ${cfg}"
+        [[ -f "${cfg}.bak" ]] && warn "ancien config sauvegardé : ${cfg}.bak"
+    fi
+
+    # --- ssh-agent au login -------------------------------------------------
+    local rc="${HOME}/.bashrc"
+    [[ "${SHELL:-}" == */zsh ]] && rc="${HOME}/.zshrc"
+    if [[ -f "$rc" ]] && grep -q 'devsetup:ssh-agent' "$rc"; then
+        skip "démarrage de ssh-agent dans $rc"
+    elif [[ -f "$rc" ]]; then
+        run bash -c "cat >>'$rc' <<'EOS'
+
+# devsetup:ssh-agent — démarre un agent unique et y charge la clé par défaut
+if [ -z \"\${SSH_AUTH_SOCK:-}\" ]; then
+    eval \"\$(ssh-agent -s)\" >/dev/null
+fi
+ssh-add -l >/dev/null 2>&1 || ssh-add ~/.ssh/id_ed25519 2>/dev/null
+EOS"
+        ok "ssh-agent branché dans $rc"
+    fi
+
+    # --- Publication de la clé PUBLIQUE sur GitHub --------------------------
+    # Seul le .pub quitte la machine. La clé privée ne bouge jamais.
+    if [[ ! -f "${key}.pub" ]]; then
+        warn "pas de ${key}.pub — publication GitHub ignorée."
+        return 0
+    fi
+    if ! have gh; then
+        warn "GitHub CLI absent (module 'apps') — ajoute la clé à la main :"
+        warn "  https://github.com/settings/ssh/new"
+        return 0
+    fi
+    if ! gh auth status >/dev/null 2>&1; then
+        warn "gh non authentifié. Lance 'gh auth login', puis :"
+        warn "  gh ssh-key add ${key}.pub --title \"\$(hostname -s)\""
+        return 0
+    fi
+
+    local fp
+    fp=$(ssh-keygen -lf "${key}.pub" 2>/dev/null | awk '{print $2}')
+    if gh ssh-key list 2>/dev/null | grep -qF "$fp"; then
+        skip "clé publique déjà présente sur GitHub"
+    else
+        run gh ssh-key add "${key}.pub" --title "$(hostname -s 2>/dev/null || hostname)"
+        ok "clé publique ajoutée au compte GitHub"
+    fi
+}
+
 # --- apps ------------------------------------------------------------------
-mod_apps_desc="VS Code (dépôt Microsoft) + Postman (tarball officiel)"
+mod_apps_desc="VS Code (dépôt Microsoft) + Postman + GitHub CLI"
 mod_apps() {
+    # --- GitHub CLI ---------------------------------------------------------
+    if have gh; then
+        skip "gh ($(gh --version 2>/dev/null | head -n1))"
+    else
+        add_apt_repo "githubcli" \
+            "https://cli.github.com/packages/githubcli-archive-keyring.gpg" \
+            "https://cli.github.com/packages stable main"
+        # Cette clé est déjà binaire : le dearmor de add_apt_repo la rejetterait.
+        run bash -c "curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo tee ${KEYRINGS}/githubcli.gpg >/dev/null"
+        run sudo chmod a+r "${KEYRINGS}/githubcli.gpg"
+        APT_UPDATED=0
+        apt_install gh
+    fi
+
     # --- Visual Studio Code -------------------------------------------------
     if have code; then
         skip "VS Code ($(code --version 2>/dev/null | head -n1))"
@@ -692,8 +820,9 @@ EOF"
 # ===========================================================================
 # Orchestration
 # ===========================================================================
-ALL_MODULES=(base shell docker lazy k8s jetbrains apps langs cuda tweaks)
-DEFAULT_MODULES=(base shell docker lazy k8s jetbrains apps langs tweaks)   # cuda hors défaut
+# L'ordre compte : 'apps' installe gh, dont 'ssh' se sert pour publier la clé.
+ALL_MODULES=(base shell docker lazy k8s jetbrains apps ssh langs cuda tweaks)
+DEFAULT_MODULES=(base shell docker lazy k8s jetbrains apps ssh langs tweaks)   # cuda hors défaut
 
 usage() {
     cat <<EOF

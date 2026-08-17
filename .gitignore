@@ -1,2 +1,17 @@
 .DS_Store
 *.log
+
+# Garde-fou : rien qui ressemble à une clé ou à une archive de clés
+# ne doit pouvoir entrer dans ce dépôt, même par mégarde.
+id_rsa*
+id_ecdsa*
+id_ed25519*
+*.pem
+*.key
+*.p12
+*.pfx
+*.age
+*.gpg
+*.enc
+ssh-backup*
+.ssh/

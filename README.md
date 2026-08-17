@@ -26,7 +26,8 @@ chmod +x ubuntu26-devsetup.sh
 | `lazy` | lazygit, lazydocker, dive, ctop |
 | `k8s` | kubectl, helm, k9s, kubectx/kubens, kind, minikube, kustomize |
 | `jetbrains` | JetBrains Toolbox, PhpStorm, PyCharm Professional |
-| `apps` | VS Code (dépôt Microsoft), Postman |
+| `apps` | VS Code (dépôt Microsoft), Postman, GitHub CLI |
+| `ssh` | Clé ed25519, ssh-agent, `~/.ssh/config`, publication de la clé publique sur GitHub |
 | `langs` | Node (fnm + LTS), uv, Go, Rust, PHP + Composer |
 | `cuda` | Pilote NVIDIA open, CUDA Toolkit, nvidia-container-toolkit |
 | `tweaks` | Limites inotify / nofile pour les IDE, défauts git |
@@ -54,6 +55,44 @@ chmod +x ubuntu26-devsetup.sh
 - **Isolation des échecs.** Un module qui casse n'arrête pas les suivants ; récapitulatif en fin d'exécution.
 - **CUDA.** Installe `cuda-toolkit` et non le métapaquet `cuda`, pour éviter de tirer un pilote concurrent. Redémarrage requis ensuite.
 - **Groupe docker.** Déconnexion/reconnexion (ou `newgrp docker`) nécessaire après la première exécution.
+
+## `migrate-ssh-keys.sh`
+
+Transfert de `~/.ssh` d'une machine à l'autre, **toujours chiffré**.
+
+```bash
+# Sur l'ancienne machine (macOS ou Linux)
+./migrate-ssh-keys.sh --export -o ~/ssh-backup
+
+# Transport MANUEL — clé USB, ou :
+scp ~/ssh-backup.tar.gz.age user@nouvelle-machine:~/
+
+# Sur la nouvelle machine
+./migrate-ssh-keys.sh --import ~/ssh-backup.tar.gz.age
+shred -u ~/ssh-backup.tar.gz.age
+```
+
+| Option | Effet |
+|---|---|
+| `--export [-o PREFIXE]` | Archive chiffrée de `~/.ssh` (défaut : `~/ssh-backup-<hôte>-<date>`) |
+| `--import ARCHIVE` | Restaure dans `~/.ssh` avec les bonnes permissions |
+| `--force` | À l'import, écrase les fichiers existants |
+
+Chiffrement : `age` s'il est présent, sinon `gpg`, sinon `openssl` (AES-256, PBKDF2 600 000 itérations). L'extension indique l'outil utilisé (`.age` / `.gpg` / `.enc`). **Si aucun des trois n'est disponible, le script refuse d'écrire** plutôt que de produire une archive en clair.
+
+Comportement à l'import :
+
+- les fichiers déjà présents sont **conservés**, jamais écrasés sans `--force` ;
+- `known_hosts` et `authorized_keys` sont **fusionnés** (dédoublonnés), pas remplacés ;
+- les permissions sont normalisées : `700` sur le dossier, `600` sur les clés privées, `644` sur les `.pub`.
+
+### Ce que ce script ne fait pas
+
+Il n'envoie **rien** sur le réseau. Le transport de l'archive est ton geste, pas le sien.
+
+> Une clé privée ne doit jamais entrer dans un dépôt git, un drive, un mail ou un chat. Sur un dépôt public, elle est compromise en quelques minutes : des bots scannent GitHub en continu, et supprimer le fichier ne l'efface pas de l'historique. La seule réponse à une clé exposée est sa révocation.
+
+Le `.gitignore` de ce dépôt bloque `id_*`, `*.pem`, `*.key`, `*.age`, `*.gpg`, `*.enc` et `ssh-backup*` — un garde-fou contre un `git add -A` distrait.
 
 ### Licences JetBrains
 
