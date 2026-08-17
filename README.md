@@ -54,6 +54,7 @@ chmod +x ubuntu26-devsetup.sh
 - **kubectl.** La mineure du dépôt `pkgs.k8s.io` est résolue dynamiquement via `dl.k8s.io/release/stable.txt`, pas figée en dur.
 - **Rate limit GitHub.** Les binaires (lazygit, k9s, kind…) passent par l'API des releases. Exporte `GITHUB_TOKEN` si tu heurtes la limite anonyme.
 - **Isolation des échecs.** Un module qui casse n'arrête pas les suivants ; récapitulatif en fin d'exécution.
+- **Paquets manquants.** `apt-get` traite sa ligne de commande comme un tout : un seul nom inconnu, et rien n'est installé. Le module `wm` reprend donc paquet par paquet en cas d'échec groupé, nomme les fautifs, et **pose ses configurations malgré tout** — sans quoi un paquet absent d'`universe` laisserait le bureau sans aucun fichier de config.
 - **CUDA.** Installe `cuda-toolkit` et non le métapaquet `cuda`, pour éviter de tirer un pilote concurrent. Redémarrage requis ensuite.
 - **Groupe docker.** Déconnexion/reconnexion (ou `newgrp docker`) nécessaire après la première exécution.
 

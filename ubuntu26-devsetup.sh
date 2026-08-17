@@ -103,8 +103,44 @@ apt_install() {
         return 0
     fi
     apt_update
-    run sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${missing[@]}"
+    # Le code retour d'apt-get doit remonter : sans ce test, le "ok" qui suit
+    # l'écraserait, et un appelant en contexte conditionnel croirait à un succès.
+    if ! run sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${missing[@]}"; then
+        return 1
+    fi
     ok "paquets installés : ${missing[*]}"
+    return 0
+}
+
+# Comme apt_install, mais un paquet indisponible ne fait pas tomber le reste.
+# apt-get traite sa ligne de commande comme un tout : un seul nom inconnu et
+# rien n'est installé. On réessaie donc paquet par paquet pour isoler le
+# fautif, et on rend la main en signalant ce qui manque plutôt qu'en avortant.
+apt_install_tolerant() {
+    local pkgs=("$@") failed=()
+
+    if apt_install "${pkgs[@]}" 2>/dev/null; then
+        return 0
+    fi
+
+    warn "installation groupée en échec — reprise paquet par paquet."
+    local p
+    for p in "${pkgs[@]}"; do
+        dpkg-query -W -f='${Status}' "$p" 2>/dev/null | grep -q "^install ok installed$" && continue
+        if ! run sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "$p" >/dev/null 2>&1; then
+            failed+=("$p")
+        fi
+    done
+
+    if [[ ${#failed[@]} -gt 0 ]]; then
+        err "paquets non installés : ${failed[*]}"
+        warn "vérifie que le dépôt 'universe' est activé :"
+        warn "  sudo add-apt-repository universe && sudo apt update"
+        warn "les configurations sont posées malgré tout."
+        return 1
+    fi
+    ok "tous les paquets sont installés (reprise unitaire)"
+    return 0
 }
 
 # Installe un paquet s'il existe dans les dépôts, sinon prévient (utile pour les
@@ -1039,12 +1075,14 @@ mod_wm() {
     # dépendance. Le verrouillage passe par xss-lock + xsecurelock, pilotés
     # par loginctl : la même commande que GNOME, donc le même geste dans les
     # deux sessions.
-    apt_install i3-wm alacritty rofi polybar picom dunst feh \
+    # Tolérant : un paquet absent des dépôts ne doit pas empêcher l'écriture
+    # des configurations, qui est l'essentiel de ce module.
+    apt_install_tolerant i3-wm alacritty rofi polybar picom dunst feh \
                 x11-xserver-utils xdotool maim xclip \
                 libnotify-bin playerctl \
                 arandr lxappearance fonts-font-awesome papirus-icon-theme \
                 xss-lock gnome-screensaver xsecurelock \
-                gnome-settings-daemon gnome-themes-extra
+                gnome-settings-daemon gnome-themes-extra || true
 
     # Alacritty devient x-terminal-emulator, donc le terminal qu'ouvrent les
     # applications tierces (rofi, gestionnaires de fichiers, .desktop).
