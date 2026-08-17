@@ -14,6 +14,9 @@
 set -Eeuo pipefail
 
 SCRIPT_NAME=$(basename "$0")
+# Dossier du dépôt, pour les ressources livrées à côté du script (fond d'écran).
+# Vide si le script est exécuté par un pipe (curl | bash), d'où le repli réseau.
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd || true)
 DRY_RUN=0
 ASSUME_YES=0
 CURRENT_MODULE="init"
@@ -1381,11 +1384,14 @@ EOF
     return 0
 }
 
-# Fond d'écran. Le chemin est fixe et le fichier interchangeable : remplacer
-# l'image à cet emplacement suffit, sans toucher à la config i3.
+# Fond d'écran. Le chemin d'installation est fixe et le fichier interchangeable :
+# remplacer l'image à cet emplacement suffit, sans toucher à la config i3.
+_WM_WALLPAPER_DEFAULT="coding1"
+
 _wm_wallpaper() {
     local dir="${HOME}/.local/share/wallpapers"
     local wp="${dir}/wallpaper"
+    local marker="${dir}/.devsetup-default"
     local bin="${HOME}/.local/bin/devsetup-wallpaper"
 
     if (( DRY_RUN )); then ok "[dry-run] ${wp}"; return 0; fi
@@ -1403,20 +1409,39 @@ command -v xsetroot >/dev/null 2>&1 && exec xsetroot -solid '#1e1e2e'
 EOF
     chmod 755 "$bin"
 
+    # Une image posée à la main (pas de marqueur) n'est jamais écrasée. Celle
+    # que ce script a installée l'est si le défaut du dépôt a changé depuis.
     if [[ -s "$wp" ]]; then
-        skip "fond d'écran (${wp})"
+        if [[ ! -f "$marker" ]]; then
+            skip "fond d'écran personnel conservé (${wp})"
+            return 0
+        fi
+        if [[ "$(cat "$marker" 2>/dev/null)" == "$_WM_WALLPAPER_DEFAULT" ]]; then
+            skip "fond d'écran (${_WM_WALLPAPER_DEFAULT})"
+            return 0
+        fi
+    fi
+
+    # 1. L'image livrée dans le dépôt, à côté du script.
+    if [[ -n "$SCRIPT_DIR" && -s "${SCRIPT_DIR}/coding1.jpg" ]]; then
+        cp "${SCRIPT_DIR}/coding1.jpg" "$wp"
+        printf '%s\n' "$_WM_WALLPAPER_DEFAULT" >"$marker"
+        ok "fond d'écran posé depuis le dépôt (${wp})"
         return 0
     fi
 
+    # 2. Même image, récupérée en ligne si le script tourne hors du dépôt.
     if curl -fsSL --max-time 30 \
-         "https://raw.githubusercontent.com/orangci/walls-catppuccin-mocha/main/blueprint.png" \
+         "https://raw.githubusercontent.com/phareal/devbox/main/coding1.jpg" \
          -o "$wp" 2>/dev/null && [[ -s "$wp" ]]; then
-        ok "fond d'écran Catppuccin posé (${wp})"
-    else
-        rm -f "$wp"
-        warn "fond par défaut non téléchargé — aplat Mocha en attendant."
-        warn "dépose l'image de ton choix dans ${wp}"
+        printf '%s\n' "$_WM_WALLPAPER_DEFAULT" >"$marker"
+        ok "fond d'écran téléchargé (${wp})"
+        return 0
     fi
+
+    rm -f "$wp"
+    warn "fond d'écran indisponible — aplat Mocha en attendant."
+    warn "dépose l'image de ton choix dans ${wp}"
     return 0
 }
 

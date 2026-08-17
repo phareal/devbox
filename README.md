@@ -117,13 +117,18 @@ Terminal, barre, lanceur et fond d'écran partagent la même palette.
 
 `~/.config/alacritty/alacritty.toml` utilise `[general] import` — depuis Alacritty 0.14 la clé a quitté la racine, et resolute embarque la **0.16.1**.
 
-**Fond d'écran** posé par `~/.local/bin/devsetup-wallpaper`, lancé par i3 :
+**Fond d'écran** : `coding1.jpg`, livré dans le dépôt et installé vers `~/.local/share/wallpapers/wallpaper`. La pose est faite par `~/.local/bin/devsetup-wallpaper`, lancé par i3 — `feh --bg-fill` si l'image existe, sinon un aplat `#1e1e2e` via `xsetroot`, sans quoi une image absente laisse le fond X en gris moucheté d'origine.
 
-```
-~/.local/share/wallpapers/wallpaper     ← remplace ce fichier, rien d'autre à toucher
+Trois sources, dans l'ordre : l'image du dépôt à côté du script, la même récupérée en ligne si le script tourne hors dépôt (`curl | bash`), puis l'aplat.
+
+Pour changer d'image :
+
+```bash
+cp mon-image.jpg ~/.local/share/wallpapers/wallpaper
+~/.local/bin/devsetup-wallpaper
 ```
 
-Le script utilise `feh --bg-fill` si l'image existe, sinon un aplat `#1e1e2e` via `xsetroot` — sans ce repli, une image absente laisse le fond X en gris moucheté d'origine. Un fond Catppuccin est téléchargé par défaut ; si le réseau manque, l'aplat prend le relais et tu déposes l'image plus tard.
+Une image posée à la main n'est **jamais écrasée** : un marqueur `.devsetup-default` distingue ce que le script a installé de ce que tu as choisi. Sans marqueur, le fichier est considéré comme tien et laissé tel quel.
 
 **Polybar** : le `colors.ini` du thème passe en Mocha, les huit *shades* de colorblocks recevant le dégradé bleu → lavande plutôt que l'orange d'origine. **rofi** et **picom** étaient déjà sur cette palette.
 
