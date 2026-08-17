@@ -76,7 +76,7 @@ Configs de départ écrites **seulement si absentes**, jamais écrasées :
 | `~/.config/i3/config` | Gaps, raccourcis vim (`hjkl`), 6 espaces, rofi sur `$mod+d`, captures, services GNOME |
 | `~/.config/polybar/colorblocks/` | Thème **colorblocks** de [adi1090x/polybar-themes](https://github.com/adi1090x/polybar-themes), adapté desktop |
 | `~/.config/rofi/launchers/type-7/` | Lanceur [adi1090x/rofi](https://github.com/adi1090x/rofi), **type-7 / style-4**, repeint en Mocha |
-| `~/.config/picom.conf` | Ombres, fondus, coins arrondis (polybar exclu) |
+| `~/.config/picom.conf` | Ombres et fondus, backend `xrender` |
 
 Le thème polybar est cloné depuis adi1090x/polybar-themes puis **adapté à un desktop de dev Ubuntu** — il sort configuré pour un portable Arch :
 
@@ -145,6 +145,27 @@ Pour ajuster, dans `~/.config/rofi/launchers/type-7/style-4.rasi` : `width` (blo
 Si le téléchargement échoue, le script **ne déclare pas une police absente** : déclarer une famille manquante ne produit aucune erreur, les applications tombent en repli silencieux et les icônes deviennent des carrés. Il retient donc, dans l'ordre, JetBrainsMono Nerd Font, l'Iosevka Nerd Font apportée par le thème polybar, toute autre Nerd Font présente, puis `monospace` — et écrit ce choix dans les trois configs. C'est aussi pourquoi le thème polybar est installé *avant* le choix de la police.
 
 La version est **épinglée** (`_WM_NERD_FONT_VERSION`, actuellement `v3.5.0`) : l'API des releases est limitée en débit et renvoie des 429 en usage répété, et une police qui change sous les pieds ferait bouger le rendu des trois applications sans qu'on l'ait demandé. Pour la relever, vérifier d'abord que l'asset `JetBrainsMono.tar.xz` existe pour le tag visé.
+
+### Compositeur : backend `xrender` par défaut
+
+`picom` tourne en **`xrender`**, pas en `glx`. Le backend `glx` passe par l'accélération OpenGL du pilote graphique et peut **geler la machine entière** — constaté ici en machine virtuelle comme sur matériel réel. Un gel total est sans commune mesure avec le confort de coins arrondis, qui exigent `glx` et restent donc désactivés.
+
+Pour tenter `glx` malgré tout :
+
+```bash
+PICOM_BACKEND=glx ./ubuntu26-devsetup.sh --only wm
+```
+
+Une config existante écrite en `glx` est **basculée automatiquement** sur `xrender`, sauf demande explicite.
+
+En cas de gel : `Ctrl+Alt+F3` pour un TTY, puis
+
+```bash
+pkill picom
+sed -i 's/backend = "glx"/backend = "xrender"/; s/vsync = true/vsync = false/' ~/.config/picom.conf
+```
+
+Et pour se passer entièrement du compositeur, commenter la ligne `exec --no-startup-id picom -b` dans `~/.config/i3/config`.
 
 ### Services GNOME sous i3
 

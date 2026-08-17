@@ -1830,16 +1830,46 @@ _wm_rofi_config() {
     return 0
 }
 
+# Compositeur. Le backend glx passe par l'accélération OpenGL du pilote
+# graphique et peut geler la machine entière — constaté sur cette installation,
+# en machine virtuelle comme sur matériel réel. Un gel total étant sans commune
+# mesure avec le confort de coins arrondis, xrender est le défaut ; glx reste
+# accessible en posant PICOM_BACKEND=glx.
 _wm_picom_config() {
     local cfg="${HOME}/.config/picom.conf"
-    if [[ -f "$cfg" ]]; then skip "config picom"; return 0; fi
+
     if (( DRY_RUN )); then ok "[dry-run] ${cfg}"; return 0; fi
 
-    cat >"$cfg" <<'EOF'
-# picom — compositeur. Sans lui : pas d'ombres, et des fenêtres qui scintillent
-# lors des changements d'espace de travail.
-backend = "glx";
-vsync = true;
+    install -d -m 755 "$(dirname "$cfg")"
+
+    local backend="${PICOM_BACKEND:-xrender}" vsync="false" radius="0"
+    if [[ "$backend" == "glx" ]]; then
+        vsync="true"; radius="8"
+        warn "backend glx demandé — en cas de gel, repasse à xrender."
+    fi
+
+    # Bascule d'une config existante écrite en glx, sauf demande explicite.
+    if [[ -f "$cfg" ]]; then
+        if [[ "$backend" != "glx" ]] && grep -q 'backend = "glx"' "$cfg"; then
+            sed -i -e 's|backend = "glx"|backend = "xrender"|' \
+                   -e 's|^vsync = true;|vsync = false;|' \
+                   -e 's|^corner-radius = .*|corner-radius = 0;|' "$cfg"
+            ok "config picom basculée sur xrender (${cfg})"
+        else
+            skip "config picom"
+        fi
+        return 0
+    fi
+
+    cat >"$cfg" <<EOF
+# picom — compositeur.
+#
+# backend : xrender par défaut. glx est plus rapide et permet les coins
+# arrondis, mais gèle la machine sur certains pilotes graphiques. Pour l'essayer :
+#   PICOM_BACKEND=glx ./ubuntu26-devsetup.sh --only wm
+# ou remplacer la ligne ci-dessous, puis  pkill picom && picom -b
+backend = "${backend}";
+vsync = ${vsync};
 
 shadow = true;
 shadow-radius = 12;
@@ -1851,13 +1881,14 @@ fading = true;
 fade-in-step = 0.06;
 fade-out-step = 0.06;
 
-corner-radius = 8;
+# Les coins arrondis exigent glx : sans lui, la valeur reste à 0.
+corner-radius = ${radius};
 rounded-corners-exclude = [ "class_g = 'Polybar'" ];
 
 inactive-opacity = 1.0;
 frame-opacity = 1.0;
 EOF
-    ok "config picom écrite (${cfg})"
+    ok "config picom écrite (${cfg}, backend ${backend})"
     return 0
 }
 
