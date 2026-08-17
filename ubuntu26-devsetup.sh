@@ -1033,12 +1033,14 @@ mod_wm() {
     # été fusionné en amont puis archivé.
     #
     # On installe i3-wm et NON le métapaquet i3, qui tirerait i3lock en
-    # dépendance. Conséquence assumée : aucun verrouillage d'écran n'est
-    # installé (voir l'avertissement en fin de module).
+    # dépendance. Le verrouillage passe par xss-lock + xsecurelock, pilotés
+    # par loginctl : la même commande que GNOME, donc le même geste dans les
+    # deux sessions.
     apt_install i3-wm rofi polybar picom dunst feh \
                 x11-xserver-utils xdotool maim xclip \
                 libnotify-bin playerctl \
-                arandr lxappearance fonts-font-awesome papirus-icon-theme
+                arandr lxappearance fonts-font-awesome papirus-icon-theme \
+                xss-lock xsecurelock
 
     # Terminal : on se branche sur ce qui est réellement présent plutôt que
     # d'imposer un émulateur.
@@ -1056,8 +1058,8 @@ mod_wm() {
     printf '\n'
     warn "i3 est une session X11 : choisis « i3 » via l'engrenage de l'écran"
     warn "de connexion. La session Ubuntu par défaut est en Wayland."
-    warn "Aucun verrouillage d'écran n'est installé (i3lock écarté à ta demande)."
-    warn "Si tu en veux un plus tard :  sudo apt install i3lock xss-lock"
+    warn "Verrouillage : Super+l, ou 'loginctl lock-session' — la commande"
+    warn "qu'utilise GNOME. Sous i3, xss-lock la relaie vers xsecurelock."
     return 0
 }
 
@@ -1106,12 +1108,12 @@ bindsym Shift+Print exec --no-startup-id maim -s | xclip -selection clipboard -t
 bindsym $mod+h focus left
 bindsym $mod+j focus down
 bindsym $mod+k focus up
-bindsym $mod+l focus right
+bindsym $mod+semicolon focus right
 
 bindsym $mod+Shift+h move left
 bindsym $mod+Shift+j move down
 bindsym $mod+Shift+k move up
-bindsym $mod+Shift+l move right
+bindsym $mod+Shift+semicolon move right
 
 bindsym $mod+b split h
 bindsym $mod+v split v
@@ -1161,6 +1163,9 @@ bindsym XF86AudioNext        exec --no-startup-id playerctl next
 bindsym XF86AudioPrev        exec --no-startup-id playerctl previous
 
 # --- Session ---------------------------------------------------------------
+# GNOME verrouille via loginctl : on garde ce geste, xss-lock le relaie sous i3.
+bindsym $mod+l exec --no-startup-id loginctl lock-session
+
 bindsym $mod+Shift+c reload
 bindsym $mod+Shift+r restart
 bindsym $mod+Shift+e exec --no-startup-id i3-nagbar -t warning \
@@ -1169,6 +1174,7 @@ bindsym $mod+Shift+e exec --no-startup-id i3-nagbar -t warning \
 # --- Démarrage -------------------------------------------------------------
 # polybar remplace i3bar : aucune section bar {} ici, ce serait deux barres.
 exec_always --no-startup-id $HOME/.config/polybar/colorblocks/launch.sh
+exec --no-startup-id xss-lock --transfer-sleep-lock -- xsecurelock
 exec --no-startup-id picom -b
 exec --no-startup-id dunst
 EOF
@@ -1186,8 +1192,9 @@ _wm_polybar_config() {
         # Thème déjà en place : on n'y touche pas, hormis les retraits que ce
         # module garantit (le color-switch n'est pas voulu ici).
         local touched=1
-        _wm_strip_color_switch "$dir" && touched=0
+        _wm_adapt_config "$dir" && touched=0
         _wm_patch_theme_scripts "$dir" && touched=0
+        _wm_strip_color_switch "$dir" && touched=0
         (( touched )) && skip "thème polybar colorblocks"
         return 0
     fi
@@ -1209,13 +1216,23 @@ _wm_polybar_config() {
     cp -r "$tmp/pt/simple/colorblocks" "$dir"
     rm -rf "$tmp"
 
-    # Scripts hors sujet sur un desktop de dev Ubuntu :
-    # checkupdates/updates.sh sont Arch (pacman), pywal.sh exige pywal.
-    rm -f "${dir}/scripts/checkupdates" "${dir}/scripts/updates.sh" "${dir}/scripts/pywal.sh"
+    _wm_adapt_config "$dir" >/dev/null || true
+    _wm_patch_theme_scripts "$dir" >/dev/null || true
+    _wm_strip_color_switch "$dir" >/dev/null || true
 
-    # --- Adaptation desktop -------------------------------------------------
-    # Le thème sort configuré pour un portable Arch : BAT1/ACAD codés en dur,
-    # mpd dans la barre, module réseau sur wlan0, volume via alsa.
+    chmod 755 "${dir}/launch.sh" "${dir}/scripts/"*.sh 2>/dev/null || true
+
+    ok "thème colorblocks installé dans ${dir}"
+    ok "lancement : ${dir}/launch.sh — relance i3 (Super+Shift+r) pour l'appliquer"
+    return 0
+}
+
+# Le thème sort configuré pour un portable Arch : BAT1/ACAD codés en dur, mpd
+# dans la barre, réseau sur wlan0, volume via alsa. Adaptation à un desktop
+# Ubuntu. Les motifs disparaissent après le premier passage, donc rejouable.
+_wm_adapt_config() {
+    local dir="$1" changed=1
+
     local iface netmod
     iface=$(ip route show default 2>/dev/null | awk '{print $5}' | head -n1 || true)
     [[ -n "$iface" ]] || iface="eth0"
@@ -1223,55 +1240,76 @@ _wm_polybar_config() {
         en*|eth*) netmod="wired-network" ;;
         *)        netmod="network" ;;
     esac
-    sed -i "s/^interface = eth0/interface = ${iface}/" "${dir}/modules.ini"
-    sed -i "s/^interface = wlan0/interface = ${iface}/" "${dir}/modules.ini"
 
-    # battery retiré (pas de batterie), alsa remplacé par pulseaudio
-    # (PipeWire/Pulse sur Ubuntu), mpd retiré (exige le démon MPD).
-    sed -i "s/^modules-left = launcher sep workspaces sep mpd/modules-left = launcher sep workspaces/" "${dir}/config.ini"
-    sed -i "s/alsa battery network/pulseaudio ${netmod}/" "${dir}/config.ini"
+    if grep -qE '^interface = (eth0|wlan0)$' "${dir}/modules.ini"; then
+        sed -i "s/^interface = eth0$/interface = ${iface}/" "${dir}/modules.ini"
+        sed -i "s/^interface = wlan0$/interface = ${iface}/" "${dir}/modules.ini"
+        changed=0
+    fi
 
-    _wm_strip_color_switch "$dir" >/dev/null || true
-    _wm_patch_theme_scripts "$dir" >/dev/null || true
+    if grep -q 'alsa battery network' "${dir}/config.ini"; then
+        sed -i "s/^modules-left = launcher sep workspaces sep mpd/modules-left = launcher sep workspaces/" "${dir}/config.ini"
+        sed -i "s/alsa battery network/pulseaudio ${netmod}/" "${dir}/config.ini"
+        changed=0
+    fi
 
-    chmod 755 "${dir}/launch.sh" "${dir}/scripts/"*.sh 2>/dev/null || true
-
-    ok "thème colorblocks installé (réseau : ${iface} → module ${netmod})"
-    ok "lancement : ${dir}/launch.sh — relance i3 (Super+Shift+r) pour l'appliquer"
-    return 0
+    (( changed == 0 )) && ok "barre adaptée desktop (réseau : ${iface} → ${netmod}, sans batterie ni mpd)"
+    return $changed
 }
 
-# Les scripts du thème visent Arch + portable. Corrections pour Ubuntu :
+# Les scripts du thème visent Arch + portable, et l'un porte un bug franc.
+# Corrections pour Ubuntu :
 #   - dir="~/..." : le tilde entre guillemets n'est PAS développé par bash,
 #     donc rofi ne trouvait aucun de ses thèmes (bug amont)
-#   - entrée Lock : appelle i3lock ou betterlockscreen, aucun des deux n'est
-#     installé ici, le clic ne faisait donc rien
+#   - Lock : appelait i3lock ou betterlockscreen, absents ici ; rebranché sur
+#     loginctl lock-session, la commande qu'utilise GNOME
 #   - suspend : mpc et amixer absents (pas de MPD, et Ubuntu est sur PipeWire)
 #   - logout : dépendait de $DESKTOP_SESSION valant exactement "i3"
 #   - launcher : "-modi drun" est déprécié depuis rofi 1.7.6 au profit de
 #     "-modes" ; "-show drun" suffit et marche sur toutes les versions
+#
+# Les correctifs ayant évolué, ils ne sont pas rejouables en place sur un
+# fichier déjà patché par une version antérieure. On repart donc des scripts
+# d'origine dès que le marqueur de révision n'est pas à jour.
+_WM_SCRIPTS_REV=2
+
 _wm_patch_theme_scripts() {
-    local dir="$1" pm="${dir}/scripts/powermenu.sh" lc="${dir}/scripts/launcher.sh"
-    local changed=1
+    local dir="$1" rev="${dir}/scripts/.devsetup-rev"
 
-    if [[ -f "$pm" ]] && grep -q 'dir="~/' "$pm"; then
-        sed -i 's|^dir="~/|dir="$HOME/|' "$pm"
-        sed -i 's|^options="\$lock\\n|options="|' "$pm"
-        sed -i '/^    \$lock)/,/^        ;;/d' "$pm"
-        sed -i '/mpc -q pause/d;/amixer set Master mute/d' "$pm"
-        sed -i '/openbox --exit/d;/bspc quit/d' "$pm"
-        sed -i '/elif \[\[ "\$DESKTOP_SESSION"/d' "$pm"
-        sed -i 's|if \[\[ "\$DESKTOP_SESSION" == "Openbox" \]\]; then|if true; then|' "$pm"
-        changed=0
+    [[ -f "$rev" && "$(cat "$rev" 2>/dev/null)" == "$_WM_SCRIPTS_REV" ]] && return 1
+
+    local tmp; tmp=$(mktemp -d)
+    if ! git clone -q --depth 1 https://github.com/adi1090x/polybar-themes "$tmp/pt" 2>/dev/null; then
+        warn "clone du thème échoué — scripts laissés en l'état."
+        rm -rf "$tmp"; return 1
     fi
+    rm -rf "${dir}/scripts"
+    cp -r "$tmp/pt/simple/colorblocks/scripts" "${dir}/scripts"
+    rm -rf "$tmp"
 
-    if [[ -f "$lc" ]] && grep -q -- '-modi drun' "$lc"; then
-        sed -i 's| -modi drun||' "$lc"
-        changed=0
-    fi
+    # Scripts hors sujet sur un desktop Ubuntu : checkupdates et updates.sh
+    # sont Arch (pacman), pywal.sh exige pywal.
+    rm -f "${dir}/scripts/checkupdates" "${dir}/scripts/updates.sh" "${dir}/scripts/pywal.sh"
 
-    (( changed == 0 )) && ok "scripts du thème adaptés à Ubuntu (rofi, powermenu)"
-    return $changed
+    local pm="${dir}/scripts/powermenu.sh" lc="${dir}/scripts/launcher.sh"
+
+    sed -i 's|^dir="~/|dir="$HOME/|' "$pm"
+    sed -i 's|if \[\[ -f /usr/bin/i3lock \]\]; then|if true; then|' "$pm"
+    sed -i 's|^\t\t\ti3lock$|\t\t\tloginctl lock-session|' "$pm"
+    sed -i '/elif \[\[ -f \/usr\/bin\/betterlockscreen \]\]; then/d' "$pm"
+    sed -i '/betterlockscreen -l/d' "$pm"
+    sed -i '/mpc -q pause/d;/amixer set Master mute/d' "$pm"
+    sed -i '/openbox --exit/d;/bspc quit/d' "$pm"
+    sed -i '/elif \[\[ "\$DESKTOP_SESSION"/d' "$pm"
+    sed -i 's|if \[\[ "\$DESKTOP_SESSION" == "Openbox" \]\]; then|if true; then|' "$pm"
+
+    sed -i 's| -modi drun||' "$lc"
+
+    chmod 755 "${dir}/scripts/"*.sh 2>/dev/null || true
+    printf '%s\n' "$_WM_SCRIPTS_REV" >"$rev"
+
+    ok "scripts du thème adaptés à Ubuntu (rofi, verrou loginctl, powermenu)"
+    return 0
 }
 
 # Retire le sélecteur de palette du thème : le module de la barre et les

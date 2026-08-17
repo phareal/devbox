@@ -88,7 +88,7 @@ Le thème polybar est cloné depuis adi1090x/polybar-themes puis **adapté à un
 Restent utilisables : `launcher.sh` et `powermenu.sh` (rofi), eux-mêmes corrigés pour Ubuntu :
 
 - `powermenu.sh` écrivait `dir="~/..."` — **le tilde entre guillemets n'est pas développé par bash**, donc rofi ne trouvait aucun de ses thèmes. Bug amont, corrigé en `$HOME`.
-- entrée **Lock** retirée : elle appelle `i3lock` ou `betterlockscreen`, absents ici, le clic ne faisait rien.
+- entrée **Lock** rebranchée sur `loginctl lock-session` : elle appelait `i3lock` ou `betterlockscreen`, absents ici.
 - **Suspend** : appels `mpc` et `amixer` retirés (pas de MPD, et Ubuntu tourne sur PipeWire).
 - **Logout** : dépendait de `$DESKTOP_SESSION` valant exactement `i3` ; remplacé par un `i3-msg exit` inconditionnel.
 - `launcher.sh` : `-modi drun` retiré, déprécié depuis rofi 1.7.6 au profit de `-modes` — `-show drun` suffit et fonctionne sur toutes les versions, dont la 2.0 qu'embarque Ubuntu 26.04.
@@ -106,7 +106,24 @@ Le lancement passe par le `launch.sh` du thème, câblé dans l'`exec_always` d'
 | `$mod+Tab` | Bascule entre fenêtres |
 | `$mod+Shift+q` | Fermer la fenêtre |
 | `$mod+r` | Mode redimensionnement |
+| `$mod+l` | Verrouiller l'écran |
 | `$mod+Shift+e` | Quitter la session |
+
+### Verrouillage d'écran
+
+L'écran de verrouillage de GNOME **est** gnome-shell : il n'existe pas dans une session i3. En revanche, la commande que GNOME utilise pour verrouiller, elle, est réutilisable :
+
+```
+Super+l        →  loginctl lock-session
+```
+
+C'est le même geste dans les deux sessions. Sous GNOME, logind délègue à gnome-shell. Sous i3, **`xss-lock`** écoute le signal `Lock` de logind et lance **`xsecurelock`** (1.9.0 dans resolute). `i3lock` reste écarté.
+
+`xss-lock` est démarré par i3 avec `--transfer-sleep-lock`, ce qui verrouille **avant** la mise en veille et non après le réveil — sans quoi le bureau reste visible une fraction de seconde à la reprise.
+
+L'entrée **Lock** du powermenu passe par la même commande.
+
+Note : `$mod+l` entrant en conflit avec le focus vers la droite, celui-ci passe sur `$mod+semicolon` (et `$mod+Shift+semicolon` pour déplacer).
 
 **i3 est une session X11.** Ubuntu ouvre par défaut une session Wayland : choisis « i3 » via l'engrenage de l'écran de connexion. La config n'inclut aucune section `bar {}`, polybar remplaçant i3bar — en garder une afficherait deux barres superposées.
 
